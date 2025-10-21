@@ -205,3 +205,24 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# --- Project: Paper Trail Specific ---
+
+# Ignore the credentials file
+config.py
+
+# Ignore downloaded bulk data files
+*.zip
+*.json
+*.csv
+*.txt
+
+# Ignore the data directories
+contributions/
+votes/
+vote_data/
+
+# Ignore local environment
+.venv/
+venv/
+env/
