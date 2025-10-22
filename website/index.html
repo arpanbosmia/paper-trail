@@ -12,17 +12,20 @@
     <style>
         body { font-family: 'Inter', sans-serif; }
         .chart-container { position: relative; margin: auto; height: 300px; width: 100%; }
-        /* Custom scrollbar for better dark mode aesthetics */
         ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #1F2937; } /* bg-gray-800 */
-        ::-webkit-scrollbar-thumb { background: #4B5563; border-radius: 4px; } /* bg-gray-600 */
-        ::-webkit-scrollbar-thumb:hover { background: #6B7280; } /* bg-gray-500 */
-        /* Style for the selected radio button label */
+        ::-webkit-scrollbar-track { background: #1F2937; }
+        ::-webkit-scrollbar-thumb { background: #4B5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6B7280; }
         .filter-radio:checked + label {
-            background-color: #DC2626; /* red-600 */
-            border-color: #DC2626; /* red-600 */
+            background-color: #DC2626;
+            border-color: #DC2626;
             color: white;
             font-weight: 600;
+        }
+        /* Style for disabled pagination buttons */
+        .pagination-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
     </style>
 </head>
@@ -31,7 +34,6 @@
     <div class="container mx-auto p-4 md:p-8 max-w-5xl">
         <header class="text-center mb-8">
             <div class="flex items-center justify-center gap-4 mb-2">
-                <!-- TYT Logo with fallback -->
                 <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/The_Young_Turks_logo.svg/200px-The_Young_Turks_logo.svg.png" 
                      alt="TYT Logo" 
                      class="h-12 w-12 md:h-16 md:w-16" 
@@ -48,14 +50,12 @@
 
         <!-- Search Section -->
         <div id="searchSection" class="bg-gray-800 border border-gray-700 p-6 rounded-xl shadow-lg mb-8">
-            <!-- UPDATED SEARCH TITLE -->
             <h2 class="text-2xl font-semibold mb-4 text-center text-white leading-tight">
                 Search for a Congressman or Governor
                 <br>
                 <span class="text-lg font-normal text-gray-400">(2003-Present)</span>
             </h2>
             <div class="flex flex-col sm:flex-row gap-4">
-                <!-- UPDATED PLACEHOLDER -->
                 <input type="text" id="searchInput" placeholder="Enter name" class="flex-grow p-3 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none transition">
                 <button id="searchButton" class="bg-red-600 text-white font-semibold p-3 rounded-lg hover:bg-red-700 transition shadow-md">Search</button>
             </div>
@@ -89,13 +89,12 @@
                 </div>
                 <!-- Vote Column -->
                 <div>
-                    <!-- UPDATED TITLE to be on two lines -->
                     <h3 class="text-xl font-semibold mb-4 text-center text-white leading-tight">
                         Voting Record on Enacted Bills
                         <br>
                         <span class="text-lg font-normal text-gray-400">(since 108th Congress)</span>
                     </h3>
-                     <!-- VOTE FILTERS AND SORT -->
+                    <!-- VOTE FILTERS AND SORT -->
                     <div id="voteFilterControls" class="mb-4 p-2 bg-gray-700/50 rounded-lg">
                         <div class="flex items-center justify-center flex-wrap gap-2 text-xs sm:text-sm">
                             <span class="font-semibold mr-2">Filter:</span>
@@ -116,8 +115,19 @@
                     <div id="voteSpinner" class="hidden text-center py-8">
                          <svg class="animate-spin h-6 w-6 text-red-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                     </div>
-                    <!-- UPDATED: Reduced max-height for shorter scroll area -->
+                    <!-- Vote list container -->
                     <div id="voteRecord" class="max-h-[28rem] lg:max-h-[448px] overflow-y-auto space-y-3 pr-2"></div>
+                    
+                    <!-- ** NEW: PAGINATION CONTROLS ** -->
+                    <div id="votePagination" class="hidden flex items-center justify-between mt-4">
+                        <button id="prevPageBtn" class="pagination-btn bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-500 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                            &larr; Previous
+                        </button>
+                        <span id="pageInfo" class="text-sm text-gray-400">Page 1 of 1</span>
+                        <button id="nextPageBtn" class="pagination-btn bg-red-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                            Next &rarr;
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -125,7 +135,7 @@
 
     <script>
         // API URL for mobile testing
-        const API_BASE_URL = "https://paper-trail-api.onrender.com/api"; // Your computer's local network IP
+        const API_BASE_URL = "http://192.168.12.146:5000/api"; // Your computer's local network IP
 
         // Get DOM elements
         const searchInput = document.getElementById('searchInput');
@@ -142,10 +152,17 @@
         const donationLegendDiv = document.getElementById('donationLegend');
         const donationSpinner = document.getElementById('donationSpinner');
         const donationChartCanvas = document.getElementById('donationChart');
+        // Pagination elements
+        const votePagination = document.getElementById('votePagination');
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
+        const pageInfo = document.getElementById('pageInfo');
 
         let donationChartInstance = null;
         let searchResultsCache = [];
         let currentPoliticianId = null;
+        let currentPage = 1;
+        let totalPages = 1;
 
         /**
          * Searches for politicians based on the input field.
@@ -205,14 +222,17 @@
             loadingSpinner.classList.add('hidden');
             detailContainer.classList.remove('hidden');
 
-            // Reset filters
+            // Reset filters and page
             document.getElementById('type_all').checked = true;
             document.getElementById('sortToggle').value = 'desc';
+            currentPage = 1;
+            totalPages = 1;
 
             // Clear previous details
             politicianDetailsDiv.innerHTML = '';
             voteRecordDiv.innerHTML = '';
             donationLegendDiv.innerHTML = '';
+            votePagination.classList.add('hidden');
             if (donationChartInstance) donationChartInstance.destroy();
             
             donationSpinner.classList.remove('hidden');
@@ -240,7 +260,7 @@
             }
             
             // Fetch votes and donations in parallel
-            fetchAndDisplayVotes();
+            fetchAndDisplayVotes(); // Fetches page 1
             
             try {
                 const donationsRes = await fetch(`${API_BASE_URL}/politician/${politicianId}/donations/summary`);
@@ -256,24 +276,33 @@
         }
 
         /**
-         * Fetches vote data based on current filter/sort and displays it.
+         * Fetches vote data based on current page, filter, and sort.
          */
-        async function fetchAndDisplayVotes() {
+        async function fetchAndDisplayVotes(page = 1) {
             if (!currentPoliticianId) return;
             voteSpinner.classList.remove('hidden');
             voteRecordDiv.innerHTML = '';
+            votePagination.classList.add('hidden');
+            currentPage = page;
+
             try {
                 const billType = document.querySelector('input[name="billType"]:checked').value;
                 const sortOrder = document.getElementById('sortToggle').value;
                 
-                let voteApiUrl = `${API_BASE_URL}/politician/${currentPoliticianId}/votes?sort=${sortOrder}`;
+                let voteApiUrl = `${API_BASE_URL}/politician/${currentPoliticianId}/votes?page=${page}&sort=${sortOrder}`;
                 if (billType) {
                     voteApiUrl += `&type=${billType}`;
                 }
                 const votesRes = await fetch(voteApiUrl);
                 if (!votesRes.ok) throw new Error(`Failed to fetch voting record (${votesRes.status})`);
-                const votes = await votesRes.json();
+                
+                const data = await votesRes.json();
+                const votes = data.votes;
+                const pagination = data.pagination;
+
                 displayVotes(votes);
+                updateVotePagination(pagination);
+                
             } catch (error) {
                  console.error("Failed to load votes:", error);
                 voteRecordDiv.innerHTML = `<p class="text-center text-red-400 font-semibold">Could not load votes: ${error.message}</p>`;
@@ -305,6 +334,22 @@
             });
         }
         
+        /**
+         * Updates the pagination controls based on API response.
+         */
+        function updateVotePagination(pagination) {
+            if (!pagination || pagination.totalvotes === 0) {
+                votePagination.classList.add('hidden');
+                return;
+            }
+            
+            pageInfo.textContent = `Page ${pagination.currentpage} of ${pagination.totalpages} (${pagination.totalvotes} votes)`;
+            prevPageBtn.disabled = (pagination.currentpage <= 1);
+            nextPageBtn.disabled = (pagination.currentpage >= pagination.totalpages);
+            
+            votePagination.classList.remove('hidden');
+        }
+
         /**
          * Renders the donation pie chart and legend.
          */
@@ -357,13 +402,11 @@
                         legend: { display: false },
                         tooltip: {
                             callbacks: {
-                                // ** UPDATED: Tooltip now shows two lines for mobile **
                                 label: function(context) {
                                     const label = context.label || '';
                                     const value = context.parsed || 0;
                                     const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
-                                    // Return an array for multi-line tooltip
-                                    return [label, currency];
+                                    return [label, currency]; // Multi-line tooltip
                                 }
                             }
                         }
@@ -405,8 +448,25 @@
             if (event.key === 'Enter') searchPoliticians();
         });
         backButton.addEventListener('click', showSearchResults);
-        voteFilterControls.addEventListener('change', fetchAndDisplayVotes);
+        
+        // ** UPDATED: Listen for filter/sort changes **
+        voteFilterControls.addEventListener('change', () => {
+            // When a filter changes, reset to page 1
+            fetchAndDisplayVotes(1); 
+        });
+        
+        // ** NEW: Listen for pagination button clicks **
+        prevPageBtn.addEventListener('click', () => {
+            if (currentPage > 1) {
+                fetchAndDisplayVotes(currentPage - 1);
+            }
+        });
+        nextPageBtn.addEventListener('click', () => {
+            if (currentPage < totalPages) {
+                fetchAndDisplayVotes(currentPage + 1);
+            }
+        });
+
     </script>
 </body>
 </html>
-
