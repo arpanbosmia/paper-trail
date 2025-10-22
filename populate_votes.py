@@ -3,6 +3,7 @@ import json
 import psycopg2
 import time
 from psycopg2.extras import execute_values
+import re
 import config # Import config
 
 # --- CONFIGURATION ---
@@ -11,8 +12,27 @@ VOTE_DATA_FOLDER_PATH = config.VOTE_DATA_FOLDER_PATH
 MEMBER_FILE_PATH = config.MEMBER_FILE_PATH
 BATCH_SIZE = 5000 
 
+# --- STATE ABBREVIATION MAP ---
+STATE_ABBREVIATION_MAP = {
+    'AL': 'alabama', 'AK': 'alaska', 'AS': 'american samoa', 'AZ': 'arizona', 'AR': 'arkansas',
+    'CA': 'california', 'CO': 'colorado', 'CT': 'connecticut', 'DE': 'delaware', 'DC': 'district of columbia',
+    'FL': 'florida', 'GA': 'georgia', 'GU': 'guam', 'HI': 'hawaii', 'ID': 'idaho',
+    'IL': 'illinois', 'IN': 'indiana', 'IA': 'iowa', 'KS': 'kansas', 'KY': 'kentucky',
+    'LA': 'louisiana', 'ME': 'maine', 'MD': 'maryland', 'MA': 'massachusetts', 'MI': 'michigan',
+    'MN': 'minnesota', 'MS': 'mississippi', 'MO': 'missouri', 'MT': 'montana', 'NE': 'nebraska',
+    'NV': 'nevada', 'NH': 'new hampshire', 'NJ': 'new jersey', 'NM': 'new mexico', 'NY': 'new york',
+    'NC': 'north carolina', 'ND': 'north dakota', 'MP': 'northern mariana islands', 'OH': 'ohio', 'OK': 'oklahoma',
+    'OR': 'oregon', 'PA': 'pennsylvania', 'PR': 'puerto rico', 'RI': 'rhode island', 'SC': 'south carolina',
+    'SD': 'south dakota', 'TN': 'tennessee', 'TX': 'texas', 'UT': 'utah', 'VT': 'vermont',
+    'VI': 'virgin islands', 'VA': 'virginia', 'WA': 'washington', 'WV': 'west virginia',
+    'WI': 'wisconsin', 'WY': 'wyoming'
+}
+STATE_ABBREVIATION_MAP.update({k.lower(): v for k, v in STATE_ABBREVIATION_MAP.items()})
+
+
 # --- Global Lookups ---
-politician_db_lookup = {} 
+# { (cleaned_lastname, cleaned_state): [ (PoliticianID, cleaned_firstname), ... ] }
+politician_db_lookup = {}
 bill_db_lookup = {}       
 icpsr_lookup = {}         
 rollcall_lookup = {}      
@@ -24,6 +44,37 @@ VOTEVIEW_CODE_MAP = {
     7: 'Not Voting', 8: 'Not Voting', 9: 'Not Voting', 0: 'Not Voting'
 }
 
+# --- *** CORRECTED HELPER FUNCTIONS *** ---
+def clean_name_part(name_part):
+    """Aggressively cleans a name part to its simplest form."""
+    if not name_part: return ""
+    name = str(name_part).lower().strip()
+    name = re.sub(r"[.,\(\)]", " ", name) # Replace punctuation with space
+    name = re.sub(r"\s+(jr|sr|ii|iii|iv|md|phd)$", "", name, flags=re.IGNORECASE) # Remove suffixes
+    name = name.split(' ')[0].strip() # Get only the first word
+    return name
+
+def normalize_voteview_bioname(bioname_str):
+    """Cleans Voteview bioname data, e.g., 'PELOSI, Nancy P (Dem)' -> ('nancy', 'pelosi')."""
+    name = str(bioname_str or '').strip().lower()
+    name = re.sub(r"\s*\([^\)]*\)", "", name).strip() # Remove (Nickname) or (Party)
+    
+    cleaned_fname = ""
+    cleaned_lname = ""
+    if ',' in name:
+        parts = name.split(',', 1)
+        cleaned_lname = clean_name_part(parts[0]) # Clean last name
+        cleaned_fname = clean_name_part(parts[1]) # Clean first name
+    else:
+        parts = name.split()
+        if len(parts) > 1:
+            cleaned_fname = clean_name_part(parts[0])
+            cleaned_lname = clean_name_part(parts[-1]) # Assume last part is last name
+        elif len(parts) == 1:
+            cleaned_lname = clean_name_part(parts[0])
+    return (cleaned_fname, cleaned_lname)
+
+# --- Database Functions ---
 def clear_votes_table(conn):
     print("Clearing 'Votes' table..."); cur = conn.cursor()
     try:
@@ -32,17 +83,26 @@ def clear_votes_table(conn):
         conn.commit(); print("Table cleared.")
     except Exception as e: print(f"Error clearing: {e}"); conn.rollback(); raise e
 
+# --- *** CORRECTED DB LOOKUP FUNCTION *** ---
 def load_db_lookups(conn):
     """Loads Politicians and Bills from Supabase."""
     global politician_db_lookup, bill_db_lookup
     cur = conn.cursor()
-    print("Loading Politicians lookup from DB...");
+    print("Loading Politicians lookup from DB (Corrected Clean)...");
     cur.execute("SELECT PoliticianID, FirstName, LastName, State FROM Politicians")
     for row in cur.fetchall():
         pid, fname, lname, state = row
-        key = (str(fname or '').strip().lower(), str(lname or '').strip().lower(), str(state or '').strip().lower())
-        politician_db_lookup[key] = pid
-    print(f"Loaded {len(politician_db_lookup)} politicians.")
+        # Use the SAME cleaning logic for DB names
+        cleaned_fname = clean_name_part(fname)
+        cleaned_lname = clean_name_part(lname)
+        cleaned_state = str(state or '').strip().lower() # e.g., 'new jersey'
+        
+        key = (cleaned_lname, cleaned_state) # Key = (lastname, full_state_name)
+        if key not in politician_db_lookup:
+            politician_db_lookup[key] = []
+        politician_db_lookup[key].append( (pid, cleaned_fname) ) # Value = (PID, cleaned_fname)
+        
+    print(f"Loaded {len(politician_db_lookup)} unique (LastName, State) keys.")
     
     print("Loading Bills lookup from DB...");
     cur.execute("SELECT BillID, BillNumber FROM Bills WHERE Congress >= 108");
@@ -52,6 +112,7 @@ def load_db_lookups(conn):
         bill_db_lookup[key] = bid
     print(f"Loaded {len(bill_db_lookup)} enacted bills."); cur.close()
 
+# --- *** CORRECTED ICPSR LOOKUP FUNCTION *** ---
 def load_icpsr_lookup(member_filepath):
     """Loads the Voteview member file (HSall_members.json)."""
     global icpsr_lookup
@@ -59,12 +120,16 @@ def load_icpsr_lookup(member_filepath):
     try:
         with open(member_filepath, 'r', encoding='utf-8') as f: member_data = json.load(f)
         for member in member_data:
-            icpsr, state, bioname = member.get('icpsr'), member.get('state_abbrev', '').strip().upper(), member.get('bioname', '')
-            fname, lname = "", ""
-            if ',' in bioname: parts = bioname.split(',', 1); lname = parts[0].strip().lower(); fname = parts[1].strip().lower()
-            elif member.get('name'): lname = member.get('name').strip().lower()
-            if icpsr and state and (fname or lname):
-                icpsr_lookup[icpsr] = (fname, lname, state.lower())
+            icpsr = member.get('icpsr')
+            state_abbr = member.get('state_abbrev', '').strip().upper()
+            bioname = member.get('bioname', '') 
+            
+            full_state_name = STATE_ABBREVIATION_MAP.get(state_abbr, '').lower()
+            # Use the SAME cleaning logic for Voteview names
+            fname_clean, lname_clean = normalize_voteview_bioname(bioname)
+            
+            if icpsr and full_state_name and (fname_clean or lname_clean):
+                icpsr_lookup[icpsr] = (fname_clean, lname_clean, full_state_name)
         print(f"Loaded {len(icpsr_lookup)} ICPSR-to-Name mappings.")
     except FileNotFoundError: print(f"Error: Member file not found at '{member_filepath}'"); raise
     except Exception as e: print(f"Error reading member file: {e}"); raise
@@ -91,11 +156,33 @@ def load_rollcall_lookup(vote_folder_path):
         except Exception as e: print(f"    Warning: Error reading {filename}: {e}. Skipping file.")
     print(f"Loaded {len(rollcall_lookup)} roll calls linked to enacted bills.")
 
+# --- *** CORRECTED POLITICIAN MATCHING FUNCTION *** ---
 def find_politician_id(icpsr):
     """Matches Voteview icpsr to our politician_db_lookup."""
-    name_state_key = icpsr_lookup.get(icpsr)
-    if not name_state_key: return None
-    return politician_db_lookup.get(name_state_key)
+    # 1. Find the cleaned name/state key from the ICPSR
+    # key = (cleaned_fname, cleaned_lname, full_state_name_lower)
+    key_parts = icpsr_lookup.get(icpsr)
+    if not key_parts:
+        return None # This ICPSR wasn't in our member file
+    
+    fname_clean, lname_clean, state_clean = key_parts
+    
+    # 2. Use that key to find the PoliticianID from our database
+    # db_key = (cleaned_lname, full_state_name_lower)
+    db_key = (lname_clean, state_clean)
+    potential_matches = politician_db_lookup.get(db_key)
+    
+    if not potential_matches:
+        return None # No politician in our DB with this last name + state
+        
+    if len(potential_matches) == 1:
+        return potential_matches[0][0] # High confidence match
+    else:
+        # Multiple people, compare cleaned first names
+        for pid, fname_db_clean in potential_matches:
+            if fname_clean == fname_db_clean: # Compare 'cory' == 'cory'
+                return pid # Found first name match
+    return None # Ambiguous
 
 def process_and_insert_votes():
     """Reads _votes.json files, uses lookups, and batch inserts votes."""
@@ -119,6 +206,7 @@ def process_and_insert_votes():
             filepath = os.path.join(VOTE_DATA_FOLDER_PATH, filename)
             print(f"\n--- Processing File: {filename} ---")
             file_start_time = time.time(); file_votes_matched = 0
+            
             try:
                 with open(filepath, 'r', encoding='utf-8') as f: data = json.load(f)
             except Exception as e: print(f"Error reading file {filename}: {e}. Skipping."); continue
@@ -128,6 +216,7 @@ def process_and_insert_votes():
             for i, vote_record in enumerate(data):
                 total_votes_processed += 1
                 if (i + 1) % 50000 == 0: print(f"  Processed {i+1}/{len(data)} records...", end='\r')
+
                 try:
                     congress = vote_record.get('congress'); rollnumber = vote_record.get('rollnumber')
                     chamber = vote_record.get('chamber'); icpsr = vote_record.get('icpsr')
@@ -170,7 +259,7 @@ def process_and_insert_votes():
             print(f"--- Finished file {filename} in {time.time() - file_start_time:.2f}s ---")
 
         print(f"\n--- OVERALL SUCCESS ---")
-        print(f"Processed {total_votes_processed} individual vote records.")
+        print(f"Processed {total_votes_processed} individual vote records from {len(vote_files)} files.")
         cur.execute("SELECT COUNT(*) FROM Votes;"); final_count = cur.fetchone()[0]
         print(f"Successfully inserted {final_count} vote records linked to enacted laws.")
         print(f"Total execution time: {time.time() - overall_start_time:.2f} seconds.")
