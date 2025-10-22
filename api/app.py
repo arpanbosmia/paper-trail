@@ -4,18 +4,18 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-import re # Import regex for precise filtering
+import math # Import math for calculating total pages
 
 # --- Add parent directory to path to find 'config' ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
-sys.path.append(parent_dir) 
+sys.path.append(parent_dir)
 
-import config # Import your config file
+import config # Import your config file with secret keys
 
 # --- App Initialization ---
 app = Flask(__name__)
-CORS(app) # Enable Cross-Origin Resource Sharing
+CORS(app)
 
 # --- Database Connection Helper ---
 def get_db_connection():
@@ -32,36 +32,26 @@ def home():
 
 @app.route('/api/politicians/search')
 def search_politicians():
-    """
-    Searches for politicians by name or role.
-    Example: /api/politicians/search?name=kemp
-    """
-    query_name = request.args.get('name', '') 
+    """Searches for politicians by name or role."""
+    query_name = request.args.get('name', '')
     if not query_name or len(query_name) < 2:
         return jsonify({"error": "A 'name' parameter with at least 2 characters is required."}), 400
-
     conn = None
     try:
         conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor) 
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         search_query = f"%{query_name}%"
-        
         cur.execute(
             """
-            SELECT PoliticianID, FirstName, LastName, Party, State, Role, IsActive 
-            FROM Politicians 
-            WHERE LastName ILIKE %s 
-               OR FirstName ILIKE %s
-               OR Role ILIKE %s
-            LIMIT 50; -- Add a limit to avoid huge responses
-            """,
-            (search_query, search_query, search_query)
+            SELECT PoliticianID, FirstName, LastName, Party, State, Role, IsActive
+            FROM Politicians
+            WHERE LastName ILIKE %s OR FirstName ILIKE %s OR Role ILIKE %s
+            LIMIT 50;
+            """, (search_query, search_query, search_query)
         )
-        
-        politicians = cur.fetchall() 
+        politicians = cur.fetchall()
         cur.close()
         return jsonify(politicians)
-        
     except Exception as e:
         print(f"Database error in /api/politicians/search: {e}")
         return jsonify({"error": "An internal database error occurred."}), 500
@@ -70,22 +60,19 @@ def search_politicians():
 
 @app.route('/api/politician/<int:politician_id>')
 def get_politician_by_id(politician_id):
-    """
-    Gets details for a single politician by their ID.
-    Example: /api/politician/2825
-    """
+    """Gets details for a single politician by their ID."""
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
             """
-            SELECT PoliticianID, FirstName, LastName, Party, State, Role, IsActive 
-            FROM Politicians 
+            SELECT PoliticianID, FirstName, LastName, Party, State, Role, IsActive
+            FROM Politicians
             WHERE PoliticianID = %s;
             """, (politician_id,)
         )
-        politician = cur.fetchone() # Get the single result
+        politician = cur.fetchone()
         cur.close()
         if politician: return jsonify(politician)
         else: return jsonify({"error": "Politician not found"}), 404
@@ -95,59 +82,90 @@ def get_politician_by_id(politician_id):
     finally:
         if conn: conn.close()
 
+# --- *** MODIFIED VOTES ENDPOINT WITH PAGINATION *** ---
 @app.route('/api/politician/<int:politician_id>/votes')
 def get_votes_by_politician(politician_id):
     """
-    Gets the voting record for a single politician, with optional filtering and sorting.
-    Example: /api/politician/530/votes?type=hr&sort=asc
+    Gets the paginated voting record for a single politician.
+    Example: /api/politician/530/votes?page=1&type=hr&sort=asc
     """
-    # Get filter and sort parameters from the URL
+    # Get query parameters
     bill_type_filter = request.args.get('type', None)
-    sort_order = request.args.get('sort', 'desc') # Default to descending (newest first)
+    sort_order = request.args.get('sort', 'desc')
+    try:
+        page = int(request.args.get('page', 1))
+    except ValueError:
+        page = 1
+    if page < 1:
+        page = 1
+    
+    VOTES_PER_PAGE = 50 # Number of votes to return per page
+    offset = (page - 1) * VOTES_PER_PAGE
 
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Base query
-        query = """
+        # --- Build the Query ---
+        # We need two queries: one for the total count, one for the page data.
+        
+        # 1. Build COUNT query to get total number of votes for pagination
+        count_query = "SELECT COUNT(v.VoteID) FROM Votes v JOIN Bills b ON v.BillID = b.BillID WHERE v.PoliticianID = %s"
+        count_params = [politician_id]
+        
+        if bill_type_filter and bill_type_filter in ['hr', 's', 'hjres', 'sjres']:
+            count_query += " AND b.BillNumber ~* %s" # Use regex for exact start
+            count_params.append(f"^{bill_type_filter}[0-9]") # e.g., ^hr[0-9]
+        
+        cur.execute(count_query, tuple(count_params))
+        total_votes = cur.fetchone()['count']
+        total_pages = math.ceil(total_votes / VOTES_PER_PAGE)
+
+        # 2. Build DATA query for the specific page
+        data_query = """
             SELECT v.Vote, b.BillNumber, b.Title, b.Congress, b.DateIntroduced
             FROM Votes v
             JOIN Bills b ON v.BillID = b.BillID
             WHERE v.PoliticianID = %s
         """
-        params = [politician_id]
+        data_params = [politician_id]
 
-        # --- UPDATED FILTER LOGIC ---
-        # Dynamically add the bill type filter if provided
         if bill_type_filter and bill_type_filter in ['hr', 's', 'hjres', 'sjres']:
-            # Use regex to match only the exact type (e.g., 's' not 'sjres')
-            # ^ = start of string, [0-9]+ = one or more numbers, $ = end of string
-            # i = case-insensitive (handled by ~*)
-            filter_pattern = f"^{re.escape(bill_type_filter)}[0-9]+$"
-            query += " AND b.BillNumber ~* %s" # ~* is case-insensitive regex
-            params.append(filter_pattern)
-        # --- END UPDATED LOGIC ---
-
-        # Dynamically add the sorting order
+            data_query += " AND b.BillNumber ~* %s"
+            data_params.append(f"^{bill_type_filter}[0-9]")
+            
+        # Add sorting
         if sort_order.lower() == 'asc':
-            query += " ORDER BY b.DateIntroduced ASC, b.BillNumber ASC;"
+            data_query += " ORDER BY b.DateIntroduced ASC, b.BillNumber ASC"
         else:
-            query += " ORDER BY b.DateIntroduced DESC, b.BillNumber DESC;"
+            data_query += " ORDER BY b.DateIntroduced DESC, b.BillNumber DESC"
         
-        cur.execute(query, tuple(params))
-        
+        # Add pagination (LIMIT and OFFSET)
+        data_query += " LIMIT %s OFFSET %s;"
+        data_params.extend([VOTES_PER_PAGE, offset])
+
+        cur.execute(data_query, tuple(data_params))
         votes = cur.fetchall()
         cur.close()
         
-        return jsonify(votes)
+        # Return the data along with pagination info
+        return jsonify({
+            'pagination': {
+                'currentPage': page,
+                'totalPages': total_pages,
+                'totalVotes': total_votes,
+                'perPage': VOTES_PER_PAGE
+            },
+            'votes': votes
+        })
         
     except Exception as e:
         print(f"Database error in /api/politician/<id>/votes: {e}")
         return jsonify({"error": "An internal database error occurred."}), 500
     finally:
         if conn: conn.close()
+# --- *** END MODIFICATION *** ---
 
 @app.route('/api/politician/<int:politician_id>/donations/summary')
 def get_donations_summary_by_politician(politician_id):
@@ -235,7 +253,6 @@ def get_donations_by_donor(donor_id):
     finally:
         if conn: conn.close()
 
-# This makes the script runnable with 'py app.py'
 if __name__ == '__main__':
-    # debug=True automatically reloads the server when you save changes
     app.run(debug=True, host='0.0.0.0', port=5000)
+
