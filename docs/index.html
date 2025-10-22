@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project: Paper Trail - Politician Search</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .chart-container { position: relative; margin: auto; height: 300px; width: 100%; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1F2937; }
+        ::-webkit-scrollbar-thumb { background: #4B5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6B7280; }
+        .filter-radio:checked + label {
+            background-color: #DC2626;
+            border-color: #DC2626;
+            color: white;
+            font-weight: 600;
+        }
+        /* Style for disabled pagination buttons */
+        .pagination-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-5xl">
+        <header class="text-center mb-8">
+            <div class="flex items-center justify-center gap-4 mb-2">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/The_Young_Turks_logo.svg/200px-The_Young_Turks_logo.svg.png" 
+                     alt="TYT Logo" 
+                     class="h-12 w-12 md:h-16 md:w-16" 
+                     onerror="this.style.display='none'">
+                <h1 class="text-4xl md:text-5xl font-bold text-white">Project: Paper Trail</h1>
+            </div>
+            <p class="text-lg text-gray-400">A Project by The Young Turks</p>
+            <nav class="mt-4 text-lg">
+                <a href="./index.html" class="text-white font-semibold hover:underline mx-2">Politician Search</a>
+                <span class="text-gray-500">|</span>
+                <a href="./donor_search.html" class="text-red-500 hover:underline mx-2">Donor Search</a>
+            </nav>
+        </header>
+
+        <!-- Search Section -->
+        <div id="searchSection" class="bg-gray-800 border border-gray-700 p-6 rounded-xl shadow-lg mb-8">
+            <h2 class="text-2xl font-semibold mb-4 text-center text-white leading-tight">
+                Search for a Congressman or Governor
+                <br>
+                <span class="text-lg font-normal text-gray-400">(2003-Present)</span>
+            </h2>
+            <div class="flex flex-col sm:flex-row gap-4">
+                <input type="text" id="searchInput" placeholder="Enter name" class="flex-grow p-3 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none transition">
+                <button id="searchButton" class="bg-red-600 text-white font-semibold p-3 rounded-lg hover:bg-red-700 transition shadow-md">Search</button>
+            </div>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div id="loadingSpinner" class="hidden text-center my-8">
+            <svg class="animate-spin h-8 w-8 text-red-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            <p class="mt-2 text-gray-400">Searching...</p>
+        </div>
+        
+        <!-- Results Section -->
+        <div id="resultsContainer" class="space-y-4"></div>
+
+        <!-- Detail Section (hidden by default) -->
+        <div id="detailContainer" class="hidden mt-8 bg-gray-800 border border-gray-700 p-6 rounded-xl shadow-lg">
+            <button id="backButton" class="mb-4 text-red-500 font-semibold hover:underline">&larr; Back to search results</button>
+            <div id="politicianDetails" class="text-center border-b border-gray-700 pb-4 mb-4"></div>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-6">
+                <!-- Donation Column -->
+                <div>
+                    <h3 class="text-xl font-semibold mb-4 text-center text-white">Donation Summary</h3>
+                    <div id="donationSpinner" class="hidden text-center py-8">
+                         <svg class="animate-spin h-6 w-6 text-red-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="donationChart"></canvas>
+                    </div>
+                    <div id="donationLegend" class="mt-4 text-sm space-y-2"></div>
+                </div>
+                <!-- Vote Column -->
+                <div>
+                    <h3 class="text-xl font-semibold mb-4 text-center text-white leading-tight">
+                        Voting Record on Enacted Bills
+                        <br>
+                        <span class="text-lg font-normal text-gray-400">(since 108th Congress)</span>
+                    </h3>
+                    <!-- VOTE FILTERS AND SORT -->
+                    <div id="voteFilterControls" class="mb-4 p-2 bg-gray-700/50 rounded-lg">
+                        <div class="flex items-center justify-center flex-wrap gap-2 text-xs sm:text-sm">
+                            <span class="font-semibold mr-2">Filter:</span>
+                            <div><input type="radio" name="billType" id="type_all" value="" class="hidden filter-radio" checked><label for="type_all" class="cursor-pointer px-2 py-1 border border-gray-600 rounded-md transition hover:bg-gray-600">All</label></div>
+                            <div><input type="radio" name="billType" id="type_hr" value="hr" class="hidden filter-radio"><label for="type_hr" class="cursor-pointer px-2 py-1 border border-gray-600 rounded-md transition hover:bg-gray-600">HR</label></div>
+                            <div><input type="radio" name="billType" id="type_s" value="s" class="hidden filter-radio"><label for="type_s" class="cursor-pointer px-2 py-1 border border-gray-600 rounded-md transition hover:bg-gray-600">S</label></div>
+                            <div><input type="radio" name="billType" id="type_hjres" value="hjres" class="hidden filter-radio"><label for="type_hjres" class="cursor-pointer px-2 py-1 border border-gray-600 rounded-md transition hover:bg-gray-600">HJRes</label></div>
+                            <div><input type="radio" name="billType" id="type_sjres" value="sjres" class="hidden filter-radio"><label for="type_sjres" class="cursor-pointer px-2 py-1 border border-gray-600 rounded-md transition hover:bg-gray-600">SJRes</label></div>
+                            <div class="border-l border-gray-600 pl-2 ml-2 flex items-center gap-2">
+                                <label for="sortToggle" class="font-semibold">Sort:</label>
+                                <select id="sortToggle" class="bg-gray-600 text-white rounded-md p-1 focus:outline-none text-xs sm:text-sm">
+                                    <option value="desc">Newest First</option>
+                                    <option value="asc">Oldest First</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="voteSpinner" class="hidden text-center py-8">
+                         <svg class="animate-spin h-6 w-6 text-red-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    </div>
+                    <!-- Vote list container -->
+                    <div id="voteRecord" class="max-h-[28rem] lg:max-h-[448px] overflow-y-auto space-y-3 pr-2"></div>
+                    
+                    <!-- ** NEW: PAGINATION CONTROLS ** -->
+                    <div id="votePagination" class="hidden flex items-center justify-between mt-4">
+                        <button id="prevPageBtn" class="pagination-btn bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-500 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                            &larr; Previous
+                        </button>
+                        <span id="pageInfo" class="text-sm text-gray-400">Page 1 of 1</span>
+                        <button id="nextPageBtn" class="pagination-btn bg-red-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                            Next &rarr;
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API URL for mobile testing
+        const API_BASE_URL = "http://192.168.12.146:5000/api"; // Your computer's local network IP
+
+        // Get DOM elements
+        const searchInput = document.getElementById('searchInput');
+        const searchButton = document.getElementById('searchButton');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const detailContainer = document.getElementById('detailContainer');
+        const backButton = document.getElementById('backButton');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const searchSection = document.getElementById('searchSection');
+        const voteFilterControls = document.getElementById('voteFilterControls');
+        const voteRecordDiv = document.getElementById('voteRecord');
+        const voteSpinner = document.getElementById('voteSpinner');
+        const politicianDetailsDiv = document.getElementById('politicianDetails');
+        const donationLegendDiv = document.getElementById('donationLegend');
+        const donationSpinner = document.getElementById('donationSpinner');
+        const donationChartCanvas = document.getElementById('donationChart');
+        // Pagination elements
+        const votePagination = document.getElementById('votePagination');
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
+        const pageInfo = document.getElementById('pageInfo');
+
+        let donationChartInstance = null;
+        let searchResultsCache = [];
+        let currentPoliticianId = null;
+        let currentPage = 1;
+        let totalPages = 1;
+
+        /**
+         * Searches for politicians based on the input field.
+         */
+        async function searchPoliticians() {
+            const query = searchInput.value.trim();
+            if (query.length < 2) {
+                resultsContainer.innerHTML = '<p class="text-center text-gray-400">Please enter at least 2 characters to search.</p>';
+                return;
+            }
+            resultsContainer.innerHTML = '';
+            loadingSpinner.classList.remove('hidden');
+            detailContainer.classList.add('hidden');
+            try {
+                const response = await fetch(`${API_BASE_URL}/politicians/search?name=${encodeURIComponent(query)}`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                searchResultsCache = await response.json(); // Store results in cache
+                displaySearchResults(searchResultsCache);
+            } catch (error) {
+                console.error("Search failed:", error);
+                resultsContainer.innerHTML = `<p class="text-center text-red-500">Search failed. Is the API server running?</p>`;
+            } finally {
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Displays the list of politician search results.
+         */
+        function displaySearchResults(politicians) {
+            resultsContainer.innerHTML = '';
+            if (politicians.length === 0) {
+                resultsContainer.innerHTML = '<p class="text-center text-gray-400">No results found.</p>';
+                return;
+            }
+            politicians.forEach(p => {
+                const card = document.createElement('div');
+                card.className = 'bg-gray-700 p-4 rounded-lg shadow-md cursor-pointer hover:shadow-lg hover:bg-gray-600 transition';
+                card.setAttribute('data-id', p.politicianid);
+                card.innerHTML = `
+                    <h3 class="text-lg font-semibold text-red-500">${p.firstname} ${p.lastname}</h3>
+                    <p class="text-gray-300">${p.party} - ${p.state} ${p.role ? `(${p.role})` : ''}</p>
+                    <p class="text-sm ${p.isactive ? 'text-green-400' : 'text-gray-400'}">${p.isactive ? 'Currently Active' : 'Inactive'}</p>
+                `;
+                card.addEventListener('click', () => showDetails(p.politicianid));
+                resultsContainer.appendChild(card);
+            });
+        }
+
+        /**
+         * Shows the detailed view for a specific politician.
+         */
+        async function showDetails(politicianId) {
+            currentPoliticianId = politicianId;
+            searchSection.classList.add('hidden');
+            resultsContainer.classList.add('hidden');
+            loadingSpinner.classList.add('hidden');
+            detailContainer.classList.remove('hidden');
+
+            // Reset filters and page
+            document.getElementById('type_all').checked = true;
+            document.getElementById('sortToggle').value = 'desc';
+            currentPage = 1;
+            totalPages = 1;
+
+            // Clear previous details
+            politicianDetailsDiv.innerHTML = '';
+            voteRecordDiv.innerHTML = '';
+            donationLegendDiv.innerHTML = '';
+            votePagination.classList.add('hidden');
+            if (donationChartInstance) donationChartInstance.destroy();
+            
+            donationSpinner.classList.remove('hidden');
+
+            // Get politician details from cache
+            const details = searchResultsCache.find(p => p.politicianid === politicianId);
+            if (details) {
+                 politicianDetailsDiv.innerHTML = `
+                    <h2 class="text-3xl font-bold text-white">${details.firstname} ${details.lastname}</h2>
+                    <p class="text-lg text-gray-400">${details.party} - ${details.state} ${details.role ? `(${details.role})` : ''}</p>
+                `;
+            } else {
+                 // Fallback if not in cache
+                 try {
+                    const res = await fetch(`${API_BASE_URL}/politician/${politicianId}`);
+                    if (!res.ok) throw new Error('Failed to fetch details');
+                    const detailData = await res.json();
+                    politicianDetailsDiv.innerHTML = `
+                        <h2 class="text-3xl font-bold text-white">${detailData.firstname} ${detailData.lastname}</h2>
+                        <p class="text-lg text-gray-400">${detailData.party} - ${detailData.state} ${detailData.role ? `(${detailData.role})` : ''}</p>
+                    `;
+                 } catch(e) {
+                     politicianDetailsDiv.innerHTML = `<p class="text-center text-red-400">Could not load politician details.</p>`;
+                 }
+            }
+            
+            // Fetch votes and donations in parallel
+            fetchAndDisplayVotes(); // Fetches page 1
+            
+            try {
+                const donationsRes = await fetch(`${API_BASE_URL}/politician/${politicianId}/donations/summary`);
+                if (!donationsRes.ok) throw new Error(`Failed to fetch donation summary (${donationsRes.status})`);
+                const donations = await donationsRes.json();
+                displayDonations(donations);
+            } catch (error) {
+                console.error("Failed to load donations:", error);
+                 donationLegendDiv.innerHTML = `<p class="text-center text-red-400 font-semibold">Could not load donations: ${error.message}</p>`;
+            } finally {
+                donationSpinner.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Fetches vote data based on current page, filter, and sort.
+         */
+        async function fetchAndDisplayVotes(page = 1) {
+            if (!currentPoliticianId) return;
+            voteSpinner.classList.remove('hidden');
+            voteRecordDiv.innerHTML = '';
+            votePagination.classList.add('hidden');
+            currentPage = page;
+
+            try {
+                const billType = document.querySelector('input[name="billType"]:checked').value;
+                const sortOrder = document.getElementById('sortToggle').value;
+                
+                let voteApiUrl = `${API_BASE_URL}/politician/${currentPoliticianId}/votes?page=${page}&sort=${sortOrder}`;
+                if (billType) {
+                    voteApiUrl += `&type=${billType}`;
+                }
+                const votesRes = await fetch(voteApiUrl);
+                if (!votesRes.ok) throw new Error(`Failed to fetch voting record (${votesRes.status})`);
+                
+                const data = await votesRes.json();
+                const votes = data.votes;
+                const pagination = data.pagination;
+
+                displayVotes(votes);
+                updateVotePagination(pagination);
+                
+            } catch (error) {
+                 console.error("Failed to load votes:", error);
+                voteRecordDiv.innerHTML = `<p class="text-center text-red-400 font-semibold">Could not load votes: ${error.message}</p>`;
+            } finally {
+                voteSpinner.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Renders the list of votes.
+         */
+        function displayVotes(votes) {
+            voteRecordDiv.innerHTML = '';
+            if(votes.length === 0) {
+                voteRecordDiv.innerHTML = '<p class="text-gray-400 text-center">No voting record found for this filter.</p>';
+                return;
+            }
+            votes.forEach(v => {
+                const voteColor = v.vote === 'Yea' ? 'text-green-400' : (v.vote === 'Nay' ? 'text-red-400' : 'text-gray-400');
+                const voteItem = document.createElement('div');
+                voteItem.className = 'border-t border-gray-700 pt-3 pb-1';
+                const date = v.dateintroduced ? new Date(v.dateintroduced).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A';
+                voteItem.innerHTML = `
+                    <p class="font-semibold text-gray-200">${v.billnumber}: ${v.title || 'Title not available'}</p>
+                    <p class="text-sm text-gray-500">Introduced: ${date}</p>
+                    <p class="text-sm">Vote: <span class="font-bold ${voteColor}">${v.vote}</span></p>
+                `;
+                voteRecordDiv.appendChild(voteItem);
+            });
+        }
+        
+        /**
+         * Updates the pagination controls based on API response.
+         */
+        function updateVotePagination(pagination) {
+            if (!pagination || pagination.totalvotes === 0) {
+                votePagination.classList.add('hidden');
+                return;
+            }
+            
+            pageInfo.textContent = `Page ${pagination.currentpage} of ${pagination.totalpages} (${pagination.totalvotes} votes)`;
+            prevPageBtn.disabled = (pagination.currentpage <= 1);
+            nextPageBtn.disabled = (pagination.currentpage >= pagination.totalpages);
+            
+            votePagination.classList.remove('hidden');
+        }
+
+        /**
+         * Renders the donation pie chart and legend.
+         */
+        function displayDonations(donations) {
+            const ctx = donationChartCanvas.getContext('2d');
+            const donationLegendDiv = document.getElementById('donationLegend');
+            donationLegendDiv.innerHTML = '';
+            if (donationChartInstance) donationChartInstance.destroy();
+
+            if(donations.length === 0) {
+                donationLegendDiv.innerHTML = '<p class="text-gray-400 text-center">No donation data found > $2000.</p>';
+                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                return;
+            }
+            const maxSlices = 10; 
+            const mainDonations = donations.slice(0, maxSlices);
+            if (donations.length > maxSlices) {
+                const otherSlice = donations.slice(maxSlices).reduce((acc, d) => {
+                    acc.totalamount += d.totalamount;
+                    acc.percentage += (Number(d.percentage) || 0);
+                    return acc;
+                }, { totalamount: 0, percentage: 0 });
+                mainDonations.push({ 
+                    donorname: `Other (${donations.length - maxSlices} donors)`, 
+                    totalamount: otherSlice.totalamount,
+                    percentage: otherSlice.percentage
+                });
+            }
+            const labels = mainDonations.map(d => d.donorname);
+            const data = mainDonations.map(d => d.totalamount);
+            const backgroundColors = ['#D9272E', '#F97316', '#F59E0B', '#84CC16', '#10B981', '#14B8A6', '#06B6D4', '#3B82F6', '#6366F1', '#8B5CF6', '#6B7280'];
+            Chart.defaults.color = '#E5E7EB';
+            Chart.defaults.borderColor = '#374151';
+            donationChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Donation Amount',
+                        data: data,
+                        backgroundColor: backgroundColors,
+                        borderColor: '#1F2937', 
+                        borderWidth: 3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.parsed || 0;
+                                    const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+                                    return [label, currency]; // Multi-line tooltip
+                                }
+                            }
+                        }
+                    },
+                    cutout: '60%'
+                }
+            });
+            // Create custom legend
+            mainDonations.forEach((d, index) => {
+                const percentage = Number(d.percentage) || 0; 
+                const legendItem = document.createElement('div');
+                legendItem.className = 'flex items-center justify-between';
+                legendItem.innerHTML = `
+                    <div class="flex items-center">
+                        <span class="w-4 h-4 rounded-full mr-2" style="background-color: ${backgroundColors[index % backgroundColors.length]}"></span>
+                        <span class="text-gray-300">${d.donorname}</span>
+                    </div>
+                    <span class="font-semibold text-gray-200">${percentage.toFixed(2)}%</span>
+                `;
+                donationLegendDiv.appendChild(legendItem);
+            });
+        }
+        
+        /**
+         * Hides the detail view and shows the search results.
+         */
+        function showSearchResults() {
+            detailContainer.classList.add('hidden');
+            searchSection.classList.remove('hidden');
+            resultsContainer.classList.remove('hidden');
+            searchInput.focus();
+            searchInput.select();
+            currentPoliticianId = null; // Clear the current politician
+        }
+
+        // --- EVENT LISTENERS ---
+        searchButton.addEventListener('click', searchPoliticians);
+        searchInput.addEventListener('keyup', (event) => {
+            if (event.key === 'Enter') searchPoliticians();
+        });
+        backButton.addEventListener('click', showSearchResults);
+        
+        // ** UPDATED: Listen for filter/sort changes **
+        voteFilterControls.addEventListener('change', () => {
+            // When a filter changes, reset to page 1
+            fetchAndDisplayVotes(1); 
+        });
+        
+        // ** NEW: Listen for pagination button clicks **
+        prevPageBtn.addEventListener('click', () => {
+            if (currentPage > 1) {
+                fetchAndDisplayVotes(currentPage - 1);
+            }
+        });
+        nextPageBtn.addEventListener('click', () => {
+            if (currentPage < totalPages) {
+                fetchAndDisplayVotes(currentPage + 1);
+            }
+        });
+
+    </script>
+</body>
+</html>

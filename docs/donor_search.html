@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project: Paper Trail - Donor Search</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        /* Custom scrollbar for better dark mode aesthetics */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1F2937; } /* bg-gray-800 */
+        ::-webkit-scrollbar-thumb { background: #4B5563; border-radius: 4px; } /* bg-gray-600 */
+        ::-webkit-scrollbar-thumb:hover { background: #6B7280; } /* bg-gray-500 */
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-4xl">
+        <header class="text-center mb-8">
+            <div class="flex items-center justify-center gap-4 mb-2">
+                <!-- TYT Logo with fallback -->
+                <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/The_Young_Turks_logo.svg/200px-The_Young_Turks_logo.svg.png" 
+                     alt="TYT Logo" 
+                     class="h-12 w-12 md:h-16 md:w-16" 
+                     onerror="this.style.display='none'">
+                <h1 class="text-4xl md:text-5xl font-bold text-white">Project: Paper Trail</h1>
+            </div>
+            <p class="text-lg text-gray-400">A Project by The Young Turks</p>
+             <nav class="mt-4 text-lg">
+                <!-- Navigation links -->
+                <a href="./index.html" class="text-red-500 hover:underline mx-2">Politician Search</a>
+                <span class="text-gray-500">|</span>
+                <a href="./donor_search.html" class="text-white font-semibold hover:underline mx-2">Donor Search</a>
+            </nav>
+        </header>
+
+        <!-- Search Section -->
+        <div id="searchSection" class="bg-gray-800 border border-gray-700 p-6 rounded-xl shadow-lg mb-8">
+            <h2 class="text-2xl font-semibold mb-4 text-center text-white">Search for a Donor (PAC or Individual)</h2>
+            <div class="flex flex-col sm:flex-row gap-4">
+                <input type="text" id="searchInput" placeholder="Enter donor name (e.g., Boeing, AT&T)" class="flex-grow p-3 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none transition">
+                <button id="searchButton" class="bg-red-600 text-white font-semibold p-3 rounded-lg hover:bg-red-700 transition shadow-md">Search</button>
+            </div>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div id="loadingSpinner" class="hidden text-center my-8">
+            <svg class="animate-spin h-8 w-8 text-red-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            <p class="mt-2 text-gray-400">Searching...</p>
+        </div>
+        
+        <!-- Results Section -->
+        <div id="resultsContainer" class="space-y-4">
+            <!-- Search results will be injected here -->
+        </div>
+
+        <!-- Detail Section (hidden by default) -->
+        <div id="detailContainer" class="hidden mt-8 bg-gray-800 border border-gray-700 p-6 rounded-xl shadow-lg">
+            <button id="backButton" class="mb-4 text-red-500 font-semibold hover:underline">&larr; Back to search results</button>
+            <div id="donorDetails" class="text-center border-b border-gray-700 pb-4 mb-4"></div>
+            
+            <div>
+                <!-- UPDATED TITLE: Added whitespace-nowrap -->
+                <h3 class="text-xl font-semibold mb-4 text-center text-white whitespace-nowrap">Contribution History (&gt; $2000)</h3>
+                 <div id="historySpinner" class="hidden text-center py-8">
+                     <svg class="animate-spin h-6 w-6 text-red-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                </div>
+                <div id="contributionHistory" class="max-h-[60vh] overflow-y-auto space-y-3 pr-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // UPDATED API URL for mobile testing
+        const API_BASE_URL = "https://paper-trail-api.onrender.com/api"; // Your computer's local network IP
+
+        // Get DOM elements
+        const searchInput = document.getElementById('searchInput');
+        const searchButton = document.getElementById('searchButton');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const detailContainer = document.getElementById('detailContainer');
+        const backButton = document.getElementById('backButton');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const searchSection = document.getElementById('searchSection');
+        const donorDetailsDiv = document.getElementById('donorDetails');
+        const historyDiv = document.getElementById('contributionHistory');
+        const historySpinner = document.getElementById('historySpinner');
+
+        let currentSearchResults = []; // Cache search results
+
+        /**
+         * Searches for donors based on the input field.
+         */
+        async function searchDonors() {
+            const query = searchInput.value.trim();
+            if (query.length < 3) {
+                resultsContainer.innerHTML = '<p class="text-center text-gray-400">Please enter at least 3 characters to search.</p>';
+                return;
+            }
+            resultsContainer.innerHTML = '';
+            loadingSpinner.classList.remove('hidden');
+            detailContainer.classList.add('hidden');
+            try {
+                const response = await fetch(`${API_BASE_URL}/donors/search?name=${encodeURIComponent(query)}`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                currentSearchResults = await response.json(); // Cache the results
+                displaySearchResults(currentSearchResults);
+            } catch (error) {
+                console.error("Search failed:", error);
+                resultsContainer.innerHTML = `<p class="text-center text-red-500">Search failed. Is the API server running?</p>`;
+            } finally {
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Displays the list of donor search results.
+         */
+        function displaySearchResults(donors) {
+            resultsContainer.innerHTML = '';
+            if (donors.length === 0) {
+                resultsContainer.innerHTML = '<p class="text-center text-gray-400">No results found.</p>';
+                return;
+            }
+            donors.forEach(d => {
+                const card = document.createElement('div');
+                card.className = 'bg-gray-700 p-4 rounded-lg shadow-md cursor-pointer hover:shadow-lg hover:bg-gray-600 transition';
+                card.setAttribute('data-id', d.donorid); // Store ID
+                card.innerHTML = `
+                    <h3 class="text-lg font-semibold text-red-500">${d.name}</h3>
+                    <p class="text-gray-300">${d.donortype}${d.employer ? ` - ${d.employer}` : ''}</p>
+                    <p class="text-sm text-gray-400">${d.state || ''}</p>
+                `;
+                card.addEventListener('click', () => showDetails(d.donorid));
+                resultsContainer.appendChild(card);
+            });
+        }
+
+        /**
+         * Shows the detailed view for a specific donor.
+         */
+        async function showDetails(donorId) {
+            searchSection.classList.add('hidden');
+            resultsContainer.classList.add('hidden');
+            loadingSpinner.classList.add('hidden');
+            detailContainer.classList.remove('hidden');
+            
+            donorDetailsDiv.innerHTML = '';
+            historyDiv.innerHTML = '';
+            historySpinner.classList.remove('hidden');
+
+            // Find donor details from the cached search results
+            const selectedDonor = currentSearchResults.find(d => d.donorid === donorId);
+            
+            if(selectedDonor) {
+                 donorDetailsDiv.innerHTML = `
+                    <h2 class="text-3xl font-bold text-white">${selectedDonor.name}</h2>
+                    <p class="text-lg text-gray-400">${selectedDonor.donortype}</p>
+                `;
+            } else {
+                 // Fallback if not in cache (e.g., direct URL load)
+                 donorDetailsDiv.innerHTML = `<h2 class="text-3xl font-bold text-white">Loading...</h2>`;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/donor/${donorId}/donations`);
+                if (!response.ok) throw new Error('Failed to fetch contribution history.');
+                const history = await response.json();
+                displayContributionHistory(history);
+                
+            } catch (error) {
+                console.error("Failed to load details:", error);
+                historyDiv.innerHTML = `<p class="text-center text-red-400 font-semibold">Could not load contribution history: ${error.message}</p>`;
+            } finally {
+                historySpinner.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Renders the list of contributions for a donor.
+         */
+        function displayContributionHistory(history) {
+            historyDiv.innerHTML = '';
+            if(history.length === 0) {
+                historyDiv.innerHTML = '<p class="text-gray-400 text-center">No contribution history found > $2000 for politicians in our database.</p>';
+                return;
+            }
+            history.forEach(h => {
+                const item = document.createElement('div');
+                item.className = 'border-t border-gray-700 pt-3 pb-1';
+                const date = h.date ? new Date(h.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A';
+                item.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <p class="font-semibold text-white">${h.firstname} ${h.lastname} (${h.party}-${h.state})</p>
+                        <p class="font-bold text-green-400">$${new Intl.NumberFormat().format(h.amount)}</p>
+                    </div>
+                    <p class="text-sm text-gray-400">Date: ${date}</p>
+                `;
+                historyDiv.appendChild(item);
+            });
+        }
+        
+        /**
+         * Hides the detail view and shows the search results.
+         */
+        function showSearchResults() {
+            detailContainer.classList.add('hidden');
+            searchSection.classList.remove('hidden');
+            resultsContainer.classList.remove('hidden');
+            searchInput.focus();
+            searchInput.select();
+        }
+
+        // --- EVENT LISTENERS ---
+        searchButton.addEventListener('click', searchDonors);
+        searchInput.addEventListener('keyup', (event) => {
+            if (event.key === 'Enter') {
+                searchDonors();
+            }
+        });
+        backButton.addEventListener('click', showSearchResults);
+
+    </script>
+
+</body>
+</html>
+
