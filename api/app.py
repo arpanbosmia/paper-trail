@@ -6,21 +6,23 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import math # Import math for calculating total pages
 
-# --- Add parent directory to path to find 'config' ---
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.append(parent_dir)
-
-import config # Import your config file with secret keys
+# --- Load Environment Variables ---
+# We read the secrets directly from the Render environment
+DB_CONNECTION_STRING = os.environ.get('DB_CONNECTION_STRING')
+CONGRESS_GOV_API_KEY = os.environ.get('CONGRESS_GOV_API_KEY')
+# We don't need the LDA_API_KEY for the API, only for data population.
 
 # --- App Initialization ---
 app = Flask(__name__)
-CORS(app)
+CORS(app) # Enable Cross-Origin Resource Sharing
 
 # --- Database Connection Helper ---
 def get_db_connection():
     """Establishes and returns a new connection to the Supabase database."""
-    conn = psycopg2.connect(config.DB_CONNECTION_STRING)
+    # Check if the connection string was loaded correctly
+    if not DB_CONNECTION_STRING:
+        raise Exception("DB_CONNECTION_STRING environment variable not set.")
+    conn = psycopg2.connect(DB_CONNECTION_STRING)
     return conn
 
 # --- API Endpoints ---
@@ -32,15 +34,20 @@ def home():
 
 @app.route('/api/politicians/search')
 def search_politicians():
-    """Searches for politicians by name or role."""
+    """
+    Searches for politicians by name or role.
+    Example: /api/politicians/search?name=kemp
+    """
     query_name = request.args.get('name', '')
     if not query_name or len(query_name) < 2:
         return jsonify({"error": "A 'name' parameter with at least 2 characters is required."}), 400
+    
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         search_query = f"%{query_name}%"
+        
         cur.execute(
             """
             SELECT PoliticianID, FirstName, LastName, Party, State, Role, IsActive
@@ -52,6 +59,7 @@ def search_politicians():
         politicians = cur.fetchall()
         cur.close()
         return jsonify(politicians)
+        
     except Exception as e:
         print(f"Database error in /api/politicians/search: {e}")
         return jsonify({"error": "An internal database error occurred."}), 500
@@ -82,7 +90,6 @@ def get_politician_by_id(politician_id):
     finally:
         if conn: conn.close()
 
-# --- *** MODIFIED VOTES ENDPOINT WITH PAGINATION *** ---
 @app.route('/api/politician/<int:politician_id>/votes')
 def get_votes_by_politician(politician_id):
     """
@@ -91,7 +98,7 @@ def get_votes_by_politician(politician_id):
     """
     # Get query parameters
     bill_type_filter = request.args.get('type', None)
-    sort_order = request.args.get('sort', 'desc')
+    sort_order = request.args.get('sort', 'desc') # Default to descending (newest first)
     try:
         page = int(request.args.get('page', 1))
     except ValueError:
@@ -111,29 +118,31 @@ def get_votes_by_politician(politician_id):
         # We need two queries: one for the total count, one for the page data.
         
         # 1. Build COUNT query to get total number of votes for pagination
-        count_query = "SELECT COUNT(v.VoteID) FROM Votes v JOIN Bills b ON v.BillID = b.BillID WHERE v.PoliticianID = %s"
-        count_params = [politician_id]
-        
-        if bill_type_filter and bill_type_filter in ['hr', 's', 'hjres', 'sjres']:
-            count_query += " AND b.BillNumber ~* %s" # Use regex for exact start
-            count_params.append(f"^{bill_type_filter}[0-9]") # e.g., ^hr[0-9]
-        
-        cur.execute(count_query, tuple(count_params))
-        total_votes = cur.fetchone()['count']
-        total_pages = math.ceil(total_votes / VOTES_PER_PAGE)
-
-        # 2. Build DATA query for the specific page
-        data_query = """
-            SELECT v.Vote, b.BillNumber, b.Title, b.Congress, b.DateIntroduced
+        # Use a subquery to make filtering easier
+        count_query_base = """
             FROM Votes v
             JOIN Bills b ON v.BillID = b.BillID
             WHERE v.PoliticianID = %s
         """
-        data_params = [politician_id]
-
+        count_params = [politician_id]
+        
+        # This is the corrected filter logic
         if bill_type_filter and bill_type_filter in ['hr', 's', 'hjres', 'sjres']:
-            data_query += " AND b.BillNumber ~* %s"
-            data_params.append(f"^{bill_type_filter}[0-9]")
+            count_query_base += " AND b.BillNumber ~* %s" # Use regex for exact start
+            count_params.append(f"^{bill_type_filter}[0-9]") # e.g., ^hr[0-9] (matches hr123, not sjres1)
+        
+        count_query_final = f"SELECT COUNT(v.VoteID) {count_query_base}"
+        
+        cur.execute(count_query_final, tuple(count_params))
+        total_votes = cur.fetchone()['count']
+        total_pages = math.ceil(total_votes / VOTES_PER_PAGE)
+
+        # 2. Build DATA query for the specific page
+        data_query = f"""
+            SELECT v.Vote, b.BillNumber, b.Title, b.Congress, b.DateIntroduced
+            {count_query_base}
+        """
+        data_params = count_params # Start with the same params as the count query
             
         # Add sorting
         if sort_order.lower() == 'asc':
@@ -165,7 +174,6 @@ def get_votes_by_politician(politician_id):
         return jsonify({"error": "An internal database error occurred."}), 500
     finally:
         if conn: conn.close()
-# --- *** END MODIFICATION *** ---
 
 @app.route('/api/politician/<int:politician_id>/donations/summary')
 def get_donations_summary_by_politician(politician_id):
@@ -253,6 +261,8 @@ def get_donations_by_donor(donor_id):
     finally:
         if conn: conn.close()
 
+# This makes the script runnable with 'py app.py'
 if __name__ == '__main__':
+    # host='0.0.0.0' makes it accessible on your local network
     app.run(debug=True, host='0.0.0.0', port=5000)
 
