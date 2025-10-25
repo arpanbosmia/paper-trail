@@ -6,23 +6,11 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import math
 
-# --- Add parent directory to path to find 'config' ---
-# This gets the absolute path to this file (api/app.py)
-current_dir = os.path.dirname(os.path.abspath(__file__))
-# This gets the path to the parent 'paper-trail' folder
-parent_dir = os.path.dirname(current_dir)
-# This adds the 'paper-trail' folder to Python's search path
-sys.path.append(parent_dir)
-
-# Try to import the config file
-try:
-    import config
-except ModuleNotFoundError:
-    print("="*50)
-    print(f"ERROR: 'config.py' not found in parent directory: {parent_dir}")
-    print("Please make sure 'config.py' exists in your main 'paper-trail' folder.")
-    print("="*50)
-    sys.exit(1) # Stop the script
+# --- Load Environment Variables ---
+# We read the secrets directly from the Render environment.
+# NO 'import config'
+DB_CONNECTION_STRING = os.environ.get('DB_CONNECTION_STRING')
+CONGRESS_GOV_API_KEY = os.environ.get('CONGRESS_GOV_API_KEY') # This key isn't used by the API, but good practice
 
 # --- App Initialization ---
 app = Flask(__name__)
@@ -32,9 +20,10 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 # --- Database Connection Helper ---
 def get_db_connection():
     """Establishes and returns a new connection to the Supabase database."""
-    if not config.DB_CONNECTION_STRING:
-        raise Exception("DB_CONNECTION_STRING not set in config.py")
-    conn = psycopg2.connect(config.DB_CONNECTION_STRING)
+    if not DB_CONNECTION_STRING:
+        # This will be visible in Render logs if the variable is missing
+        raise Exception("DB_CONNECTION_STRING environment variable not set. Please set it on Render.")
+    conn = psycopg2.connect(DB_CONNECTION_STRING)
     return conn
 
 # --- API Endpoints ---
@@ -184,6 +173,7 @@ def get_donations_summary_by_politician(politician_id):
         """
         
         if industry_filter:
+            # Placeholder for industry filtering
             if industry_filter.lower() == 'pac/party':
                  query_base += " AND dn.DonorType = 'PAC/Party'"
             elif industry_filter.lower() == 'individual':
@@ -281,8 +271,10 @@ def get_donations_by_donor(donor_id):
     finally:
         if conn: conn.close()
 
-# This makes the script runnable
 if __name__ == '__main__':
-    # host='0.0.0.0' makes it accessible on your local network
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Get port from environment variable, default to 5000 (for local)
+    # Render will set the PORT environment variable automatically
+    port = int(os.environ.get('PORT', 5000))
+    # debug=False is important for production
+    app.run(debug=False, host='0.0.0.0', port=port)
 
