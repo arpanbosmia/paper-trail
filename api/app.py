@@ -5,7 +5,24 @@ from psycopg2.extras import RealDictCursor
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import math
-import config # This import will now work because of *how* we run the file
+
+# --- Add parent directory to path to find 'config' ---
+# This gets the absolute path to this file (api/app.py)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# This gets the path to the parent 'paper-trail' folder
+parent_dir = os.path.dirname(current_dir)
+# This adds the 'paper-trail' folder to Python's search path
+sys.path.append(parent_dir)
+
+# Try to import the config file
+try:
+    import config
+except ModuleNotFoundError:
+    print("="*50)
+    print(f"ERROR: 'config.py' not found in parent directory: {parent_dir}")
+    print("Please make sure 'config.py' exists in your main 'paper-trail' folder.")
+    print("="*50)
+    sys.exit(1) # Stop the script
 
 # --- App Initialization ---
 app = Flask(__name__)
@@ -268,5 +285,4 @@ def get_donations_by_donor(donor_id):
 if __name__ == '__main__':
     # host='0.0.0.0' makes it accessible on your local network
     app.run(debug=True, host='0.0.0.0', port=5000)
-
 
