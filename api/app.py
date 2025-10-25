@@ -226,14 +226,14 @@ def search_donors():
     """Searches for donors (individuals or PACs) by name."""
     # ... (existing code for request.args.get and initial checks) ...
     conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
         
         # --- FIX APPLIED HERE ---
-        search_pattern = f"%{query_name}%"
+    search_pattern = f"%{query_name}%"
 
-        cur.execute(
+    cur.execute(
             """
             SELECT DonorID, Name, DonorType, Employer, State
             FROM Donors
@@ -241,9 +241,9 @@ def search_donors():
             LIMIT 50;
             """, (search_pattern, search_pattern) # Passes the pattern %NAME% correctly
         )
-        donors = cur.fetchall()
-        cur.close()
-        return jsonify(donors)
+    donors = cur.fetchall()
+    cur.close()
+    return jsonify(donors)
     # ... (rest of the function, including the exception handling) ...
 
 @app.route('/api/donor/<int:donor_id>/donations')
