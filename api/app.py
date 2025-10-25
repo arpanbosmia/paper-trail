@@ -9,8 +9,13 @@ import math
 # --- Load Environment Variables ---
 # This script is designed to run by reading secrets set in the environment.
 # NO 'import config'
-DB_CONNECTION_STRING = "postgresql://postgres:TKCSJ94fyvqoCn6U@db.mfwkuclwwkddjsdyckeh.supabase.co:5432/postgres"
-CONGRESS_GOV_API_KEY = "AcW3yczMNabRoGS9OayTc0uy57E3x7X61sn3DbQK"
+# The code *says* it's designed to read environment variables, but then hardcodes them.
+# The comment "NO 'import config'" is fine, but the implementation is wrong.
+# WRONG: DB_CONNECTION_STRING = "..."
+
+# CORRECT:
+DB_CONNECTION_STRING = os.environ.get("postgresql://postgres:TKCSJ94fyvqoCn6U@db.mfwkuclwwkddjsdyckeh.supabase.co:5432/postgres")
+CONGRESS_GOV_API_KEY = os.environ.get("AcW3yczMNabRoGS9OayTc0uy57E3x7X61sn3DbQK")
 # --- App Initialization ---
 app = Flask(__name__)
 # Allow requests from any origin
