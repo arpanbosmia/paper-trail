@@ -6,26 +6,12 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import math
 
-# --- *** CORRECTED PATH LOGIC *** ---
-# This gets the absolute path to this file (api/app.py)
-current_dir = os.path.dirname(os.path.abspath(__file__))
-# This gets the path to the parent 'paper-trail' folder
-parent_dir = os.path.dirname(current_dir)
-# This adds the 'paper-trail' folder to Python's search path
-sys.path.append(parent_dir)
-# --- *** END CORRECTION *** ---
-
-# Try to import the config file
-try:
-    import config
-except ModuleNotFoundError:
-    print("="*50)
-    print(f"ERROR: 'config.py' not found in parent directory: {parent_dir}")
-    print("Please make sure 'config.py' exists in your main 'paper-trail' folder.")
-    print("="*50)
-    # Check if running on Render (where we use environment variables)
-    if not os.environ.get('RENDER'):
-        sys.exit(1) # Stop the script if not on Render and config is missing
+# --- Load Environment Variables ---
+# This script reads its secrets from the environment.
+# On Render, these are set in the "Environment" tab.
+# For local testing, we will set them in the terminal.
+DB_CONNECTION_STRING = os.environ.get('DB_CONNECTION_STRING')
+CONGRESS_GOV_API_KEY = os.environ.get('CONGRESS_GOV_API_KEY') # This key isn't used by the API, but good practice
 
 # --- App Initialization ---
 app = Flask(__name__)
@@ -35,11 +21,10 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 # --- Database Connection Helper ---
 def get_db_connection():
     """Establishes and returns a new connection to the Supabase database."""
-    # Use Render's Environment Variable *first*, fall back to config.py for local dev
-    db_string = os.environ.get('DB_CONNECTION_STRING') or config.DB_CONNECTION_STRING
-    if not db_string:
-        raise Exception("Database connection string not found in Environment Variables or config.py")
-    conn = psycopg2.connect(db_string)
+    if not DB_CONNECTION_STRING:
+        # This will be visible in Render logs if the variable is missing
+        raise Exception("DB_CONNECTION_STRING environment variable not set. Please set it in your terminal or on Render.")
+    conn = psycopg2.connect(DB_CONNECTION_STRING)
     return conn
 
 # --- API Endpoints ---
@@ -194,13 +179,8 @@ def get_donations_summary_by_politician(politician_id):
                  query_base += " AND dn.DonorType = 'PAC/Party'"
             elif industry_filter.lower() == 'individual':
                   query_base += " AND dn.DonorType = 'Individual'"
-            # Example for a real industry filter (once data is populated)
-            # elif industry_filter:
-            #    query_base += " AND dn.Industry = %s"
-            #    query_params.append(industry_filter)
         
         
-        # --- *** THIS IS THE CORRECTED SYNTAX *** ---
         final_query = f"""
             WITH PoliticianDonations AS (
                 SELECT 
@@ -228,9 +208,7 @@ def get_donations_summary_by_politician(politician_id):
             ORDER BY pd.TotalAmount DESC;
         """
         
-        # Pass the query and params to cur.execute() separately
         cur.execute(final_query, tuple(query_params))
-        # --- *** END CORRECTION *** ---
         
         donations_summary = cur.fetchall()
         cur.close()
@@ -297,6 +275,5 @@ def get_donations_by_donor(donor_id):
 # This makes the script runnable with 'py api/app.py'
 if __name__ == '__main__':
     # host='0.0.0.0' makes it accessible on your local network
-    # Use debug=True for local testing, Render will ignore this
+    # Use debug=True for local testing
     app.run(debug=True, host='0.0.0.0', port=5000)
-
