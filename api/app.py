@@ -8,25 +8,25 @@ import math
 
 # --- Load Environment Variables ---
 # This script is designed to run by reading secrets set in the environment.
-# NO 'import config'
-# The code *says* it's designed to read environment variables, but then hardcodes them.
-# The comment "NO 'import config'" is fine, but the implementation is wrong.
-# WRONG: DB_CONNECTION_STRING = "..."
+# On Render, these are set in the "Environment" tab.
+# For local testing, you must set them in the terminal.
+DB_CONNECTION_STRING = os.environ.get('DB_CONNECTION_STRING')
+CONGRESS_GOV_API_KEY = os.environ.get('CONGRESS_GOV_API_KEY') 
 
 # CORRECT:
 DB_CONNECTION_STRING = os.environ.get("DB_CONNECTION_STRING")
 CONGRESS_GOV_API_KEY = os.environ.get("CONGRESS_GOV_API_KEY")
 # --- App Initialization ---
 app = Flask(__name__)
-# Allow requests from any origin
+# Allow requests from any origin (e.g., your GitHub Pages site)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # --- Database Connection Helper ---
 def get_db_connection():
     """Establishes and returns a new connection to the Supabase database."""
     if not DB_CONNECTION_STRING:
-        # This will be visible in Render logs if the variable is missing
-        raise Exception("DB_CONNECTION_STRING environment variable not set. Please set it on Render.")
+        # This error is now 100% accurate: the variable wasn't set in the environment
+        raise Exception("DB_CONNECTION_STRING environment variable not set.")
     conn = psycopg2.connect(DB_CONNECTION_STRING)
     return conn
 
@@ -273,4 +273,6 @@ def get_donations_by_donor(donor_id):
 
 if __name__ == '__main__':
     # host='0.0.0.0' makes it accessible on your local network
+    # Use debug=True for local testing
     app.run(debug=True, host='0.0.0.0', port=5000)
+    
