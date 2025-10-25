@@ -4,6 +4,7 @@ import psycopg2
 import time
 from psycopg2.extras import execute_values
 import re
+import config
 
 # --- CONFIGURATION ---
 DB_CONNECTION_STRING = config.DB_CONNECTION_STRING
