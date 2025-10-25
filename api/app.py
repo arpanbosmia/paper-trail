@@ -10,7 +10,6 @@ import math
 # We read the secrets directly from the Render environment
 DB_CONNECTION_STRING = os.environ.get('DB_CONNECTION_STRING')
 CONGRESS_GOV_API_KEY = os.environ.get('CONGRESS_GOV_API_KEY')
-# We don't need the LDA_API_KEY for the API, only for data population.
 
 # --- App Initialization ---
 app = Flask(__name__)
@@ -19,7 +18,6 @@ CORS(app) # Enable Cross-Origin Resource Sharing
 # --- Database Connection Helper ---
 def get_db_connection():
     """Establishes and returns a new connection to the Supabase database."""
-    # Check if the connection string was loaded correctly
     if not DB_CONNECTION_STRING:
         raise Exception("DB_CONNECTION_STRING environment variable not set.")
     conn = psycopg2.connect(DB_CONNECTION_STRING)
@@ -181,7 +179,7 @@ def get_donations_summary_by_politician(politician_id):
             # query_base += " AND dn.Industry = %s"
             # query_params.append(industry_filter)
             
-            # Placeholder: Filter by DonorType if industry matches common types
+            # For now, we'll demo filtering by DonorType
             if industry_filter.lower() == 'pac/party':
                  query_base += " AND dn.DonorType = 'PAC/Party'"
             elif industry_filter.lower() == 'individual':
