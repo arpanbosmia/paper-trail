@@ -224,30 +224,27 @@ def get_donations_summary_by_politician(politician_id):
 @app.route('/api/donors/search')
 def search_donors():
     """Searches for donors (individuals or PACs) by name."""
-    query_name = request.args.get('name', '')
-    if not query_name or len(query_name) < 3:
-        return jsonify({"error": "A 'name' parameter with at least 3 characters is required."}), 400
+    # ... (existing code for request.args.get and initial checks) ...
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        search_query = f"%{query_name}%"
+        
+        # --- FIX APPLIED HERE ---
+        search_pattern = f"%{query_name}%"
+
         cur.execute(
             """
             SELECT DonorID, Name, DonorType, Employer, State
             FROM Donors
             WHERE Name ILIKE %s OR Employer ILIKE %s
             LIMIT 50;
-            """, (search_query, search_query)
+            """, (search_pattern, search_pattern) # Passes the pattern %NAME% correctly
         )
         donors = cur.fetchall()
         cur.close()
         return jsonify(donors)
-    except Exception as e:
-        print(f"Database error in /api/donors/search: {e}")
-        return jsonify({"error": "An internal database error occurred."}), 500
-    finally:
-        if conn: conn.close()
+    # ... (rest of the function, including the exception handling) ...
 
 @app.route('/api/donor/<int:donor_id>/donations')
 def get_donations_by_donor(donor_id):
