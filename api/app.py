@@ -6,21 +6,37 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import math
 
-# --- Load Environment Variables ---
-# We read the secrets directly from the Render environment
-DB_CONNECTION_STRING = os.environ.get('DB_CONNECTION_STRING')
-CONGRESS_GOV_API_KEY = os.environ.get('CONGRESS_GOV_API_KEY')
+# --- Add parent directory to path to find 'config' ---
+# This gets the absolute path to this file (api/app.py)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# This gets the path to the parent 'paper-trail' folder
+parent_dir = os.path.dirname(current_dir)
+# This adds the 'paper-trail' folder to Python's search path
+sys.path.append(parent_dir)
+
+# Try to import the config file
+try:
+    import config
+except ModuleNotFoundError:
+    print("="*50)
+    print("ERROR: 'config.py' not found.")
+    print(f"The 'api/app.py' script expected to find 'config.py' in this directory:")
+    print(f"{parent_dir}")
+    print("Please make sure 'config.py' exists in your main project folder.")
+    print("="*50)
+    sys.exit(1) # Stop the script
 
 # --- App Initialization ---
 app = Flask(__name__)
-CORS(app) # Enable Cross-Origin Resource Sharing
+# Allow requests from any origin (e.g., your GitHub Pages site)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # --- Database Connection Helper ---
 def get_db_connection():
     """Establishes and returns a new connection to the Supabase database."""
-    if not DB_CONNECTION_STRING:
-        raise Exception("DB_CONNECTION_STRING environment variable not set.")
-    conn = psycopg2.connect(DB_CONNECTION_STRING)
+    if not config.DB_CONNECTION_STRING:
+        raise Exception("DB_CONNECTION_STRING not set in config.py")
+    conn = psycopg2.connect(config.DB_CONNECTION_STRING)
     return conn
 
 # --- API Endpoints ---
@@ -176,16 +192,17 @@ def get_donations_summary_by_politician(politician_id):
             # matching the selected bill subject.
             # NOTE: This assumes your Donors table has an 'Industry' column.
             # We will use DonorType as a placeholder for now.
-            # query_base += " AND dn.Industry = %s"
-            # query_params.append(industry_filter)
-            
-            # For now, we'll demo filtering by DonorType
             if industry_filter.lower() == 'pac/party':
                  query_base += " AND dn.DonorType = 'PAC/Party'"
             elif industry_filter.lower() == 'individual':
                   query_base += " AND dn.DonorType = 'Individual'"
+            # Example for a real industry filter (once data is populated)
+            # elif industry_filter:
+            #    query_base += " AND dn.Industry = %s"
+            #    query_params.append(industry_filter)
         
         
+        # --- *** THIS IS THE CORRECTED SYNTAX *** ---
         final_query = f"""
             WITH PoliticianDonations AS (
                 SELECT 
@@ -213,7 +230,10 @@ def get_donations_summary_by_politician(politician_id):
             ORDER BY pd.TotalAmount DESC;
         """
         
+        # Pass the query and params to cur.execute() separately
         cur.execute(final_query, tuple(query_params))
+        # --- *** END CORRECTION *** ---
+        
         donations_summary = cur.fetchall()
         cur.close()
         return jsonify(donations_summary)
@@ -279,5 +299,6 @@ def get_donations_by_donor(donor_id):
 # This makes the script runnable with 'py api/app.py'
 if __name__ == '__main__':
     # host='0.0.0.0' makes it accessible on your local network
-    app.run(debug=False, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5000)
+
 
