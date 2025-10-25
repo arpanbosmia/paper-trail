@@ -5,13 +5,7 @@ from psycopg2.extras import RealDictCursor
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import math
-
-# --- Load Environment Variables ---
-# This script reads its secrets from the environment.
-# On Render, these are set in the "Environment" tab.
-# For local testing, we will set them in the terminal.
-DB_CONNECTION_STRING = os.environ.get('DB_CONNECTION_STRING')
-CONGRESS_GOV_API_KEY = os.environ.get('CONGRESS_GOV_API_KEY') # This key isn't used by the API, but good practice
+import config # This import will now work because of *how* we run the file
 
 # --- App Initialization ---
 app = Flask(__name__)
@@ -21,10 +15,9 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 # --- Database Connection Helper ---
 def get_db_connection():
     """Establishes and returns a new connection to the Supabase database."""
-    if not DB_CONNECTION_STRING:
-        # This will be visible in Render logs if the variable is missing
-        raise Exception("DB_CONNECTION_STRING environment variable not set. Please set it in your terminal or on Render.")
-    conn = psycopg2.connect(DB_CONNECTION_STRING)
+    if not config.DB_CONNECTION_STRING:
+        raise Exception("DB_CONNECTION_STRING not set in config.py")
+    conn = psycopg2.connect(config.DB_CONNECTION_STRING)
     return conn
 
 # --- API Endpoints ---
@@ -174,7 +167,6 @@ def get_donations_summary_by_politician(politician_id):
         """
         
         if industry_filter:
-            # Placeholder for industry filtering
             if industry_filter.lower() == 'pac/party':
                  query_base += " AND dn.DonorType = 'PAC/Party'"
             elif industry_filter.lower() == 'individual':
@@ -272,11 +264,9 @@ def get_donations_by_donor(donor_id):
     finally:
         if conn: conn.close()
 
-# This makes the script runnable with 'py api/app.py'
+# This makes the script runnable
 if __name__ == '__main__':
     # host='0.0.0.0' makes it accessible on your local network
-    # Use debug=True for local testing
     app.run(debug=True, host='0.0.0.0', port=5000)
 
-    
 
