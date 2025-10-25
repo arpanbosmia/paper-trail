@@ -5,7 +5,7 @@ from psycopg2.extras import RealDictCursor
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import math
-import config
+import config as config
 
 
 # CORRECT:

@@ -10,7 +10,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # --- API KEYS & DATABASE ---
 # Supabase database connection string
-DB_CONNECTION_STRING = "postgresql://postgres:TKCSJ94fyvqoCn6U@db.mfwkuclwwkddjsdyckeh.supabase.co:5432/postgres"
+DB_CONNECTION_STRING = "postgresql://postgres:4K9RheFckSfEr5W5@db.mnaoamjxbjlsypdopnem.supabase.co:5432/postgres"
 
 # API key for Congress.gov (for politicians)
 CONGRESS_GOV_API_KEY = "AcW3yczMNabRoGS9OayTc0uy57E3x7X61sn3DbQK"
