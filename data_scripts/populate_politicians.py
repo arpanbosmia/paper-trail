@@ -2,13 +2,16 @@ import requests
 import psycopg2
 import time
 from psycopg2.extras import execute_values
-import config # Import our config file
+import config # Import config
+import re 
+import sys
+import os
 
 # --- CONFIGURATION ---
 DB_CONNECTION_STRING = config.DB_CONNECTION_STRING
 CONGRESS_GOV_API_KEY = config.CONGRESS_GOV_API_KEY
 
-START_CONGRESS = 108 
+START_CONGRESS = 108 # Per Corey's update
 END_CONGRESS = 119   # Current Congress
 CURRENT_CONGRESS = 119 # Used to set IsActive flag
 BATCH_SIZE = 1000
@@ -87,6 +90,7 @@ def fetch_members_generic(session, params):
     print(f"Finished fetching. Total members found: {len(all_members)}")
     return all_members
 
+
 def update_active_status(conn, cur, current_members_keys):
     """Updates IsActive=True using a temporary table for matching."""
     print(f"\nUpdating IsActive status for {len(current_members_keys)} identified current politicians...")
@@ -115,7 +119,7 @@ def update_active_status(conn, cur, current_members_keys):
         print(f"  DB error during IsActive update: {db_err}"); conn.rollback(); return 0
 
 def insert_politicians_final_active():
-    """Inserts all as inactive, then updates active based on currentMember filter."""
+    """Final version: Inserts all as inactive, then updates active based on currentMember filter."""
     conn = None; total_processed_api_records = 0; session = requests.Session()
     try:
         print("Connecting..."); conn = psycopg2.connect(DB_CONNECTION_STRING)
@@ -180,16 +184,17 @@ def insert_politicians_final_active():
             ('Barack', 'Obama', 'Democrat', 'IL', False, 'President'),
             ('Donald', 'Trump', 'Republican', 'FL', False, 'President'), # 45th term
             ('Joe', 'Biden', 'Democrat', 'DE', False, 'President'), # 46th term
-            ('Donald', 'Trump', 'Republican', 'FL', False, 'President'), # 47th term
+            # 47th term for Trump will be handled by the update stage
         ]
         presidents_to_insert = []
         for pres in presidents:
             fname, lname, party, state, is_active, role = pres
-            unique_key = (fname.lower(), lname.lower(), state.lower())
-            if unique_key not in global_unique_politicians:
+            unique_key_tuple = (fname.lower(), lname.lower(), state.lower())
+            # Check against global set to avoid duplicates
+            if unique_key_tuple not in global_unique_politicians:
                  presidents_to_insert.append((fname, lname, party, 'Executive', state, None, is_active, role))
-                 global_unique_politicians.add(unique_key)
-        
+                 global_unique_politicians.add(unique_key_tuple)
+
         if presidents_to_insert:
              print(f"Batch inserting {len(presidents_to_insert)} new presidents...")
              sql_pres_insert = """
@@ -203,9 +208,9 @@ def insert_politicians_final_active():
              except psycopg2.Error as db_err:
                   print(f"  DB batch error (Presidents): {db_err}. Rolling back."); conn.rollback(); cur = conn.cursor()
 
-        # --- Stage 1c: Placeholder for Governors ---
-        print("\n--- Stage 1c: Governors (Manual/CSV) ---")
-        print("Skipping Governors for now. Add them manually or with the 'populate_governors.py' script.")
+        # --- Stage 1c: Governors ---
+        print("\n--- Stage 1c: Governors (Manual SQL) ---")
+        print("NOTE: Run manual SQL in Supabase Editor to add historical governors.")
         
         # --- Stage 2: Fetch *CURRENT* members/officials and Update IsActive ---
         print("\n--- Stage 2: Identifying and updating ACTIVE politicians ---")
@@ -225,13 +230,36 @@ def insert_politicians_final_active():
                     current_officials_keys.add((first_name.lower(), last_name.lower(), state.lower()))
         else: print("Warning: Failed to fetch currently serving federal members.")
         
-        # --- Manually add Current President & Governors you added ---
-        # Add current president (update as needed)
-        current_officials_keys.add(('donald', 'trump', 'fl'))
-        # Add current governors you manually inserted (this is just an example)
-        # current_officials_keys.add(('kay', 'ivey', 'al'))
-        # current_officials_keys.add(('mike', 'dunleavy', 'ak'))
-        # ... etc ...
+        # --- Manually add Current President & Governors ---
+        print("Adding manually specified active Presidents and Governors...")
+        current_officials_keys.add(('donald', 'trump', 'fl')) # 47th President
+        
+        # This list must be manually updated as governors change
+        current_governors = [ 
+            ('kay', 'ivey', 'alabama'), ('mike', 'dunleavy', 'alaska'), ('lemanu peleti', 'mauga', 'american samoa'), 
+            ('katie', 'hobbs', 'arizona'), ('sarah huckabee', 'sanders', 'arkansas'), ('gavin', 'newsom', 'california'),
+            ('jared', 'polis', 'colorado'), ('ned', 'lamont', 'connecticut'), ('john', 'carney', 'delaware'), 
+            ('ron', 'desantis', 'florida'), ('brian', 'kemp', 'georgia'), ('lou', 'leon guerrero', 'guam'),
+            ('josh', 'green', 'hawaii'), ('brad', 'little', 'idaho'), ('j. b.', 'pritzker', 'illinois'),
+            ('mike', 'braun', 'indiana'), ('kim', 'reynolds', 'iowa'), ('laura', 'kelly', 'kansas'),
+            ('andy', 'beshear', 'kentucky'), ('jeff', 'landry', 'louisiana'), ('janet', 'mills', 'maine'),
+            ('wes', 'moore', 'maryland'), ('maura', 'healey', 'massachusetts'), ('gretchen', 'whitmer', 'michigan'),
+            ('tim', 'walz', 'minnesota'), ('tate', 'reeves', 'mississippi'), ('mike', 'kehoe', 'missouri'),
+            ('greg', 'gianforte', 'montana'), ('jim', 'pillen', 'nebraska'), ('joe', 'lombardo', 'nevada'),
+            ('kelly', 'ayotte', 'new hampshire'), ('phil', 'murphy', 'new jersey'), ('michelle', 'lujan grisham', 'new mexico'),
+            ('kathy', 'hochul', 'new york'), ('josh', 'stein', 'north carolina'), ('kelly', 'armstrong', 'north dakota'),
+            ('david', 'apatang', 'northern mariana islands'), ('mike', 'dewine', 'ohio'), ('kevin', 'stitt', 'oklahoma'),
+            ('tina', 'kotek', 'oregon'), ('josh', 'shapiro', 'pennsylvania'), ('jenniffer', 'gonzález-colón', 'puerto rico'),
+            ('daniel', 'mckee', 'rhode island'), ('henry', 'mcmaster', 'south carolina'), ('larry', 'rhoden', 'south dakota'),
+            ('bill', 'lee', 'tennessee'), ('greg', 'abbott', 'texas'), ('spencer', 'cox', 'utah'),
+            ('phil', 'scott', 'vermont'), ('albert', 'bryan', 'virgin islands'), ('glenn', 'youngkin', 'virginia'),
+            ('bob', 'ferguson', 'washington'), ('patrick', 'morrisey', 'west virginia'), ('tony', 'evers', 'wisconsin'),
+            ('mark', 'gordon', 'wyoming')
+        ]
+        # Normalize keys from manual list
+        for gov_fname, gov_lname, gov_state in current_governors:
+             current_officials_keys.add((gov_fname.lower(), gov_lname.lower(), gov_state.lower()))
+        
         print(f"Identified {len(current_officials_keys)} unique currently serving officials (Congress + manual adds).")
         
         update_active_status(conn, cur, current_officials_keys)
@@ -257,3 +285,4 @@ def insert_politicians_final_active():
 
 if __name__ == "__main__":
     insert_politicians_final_active()
+

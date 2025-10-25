@@ -33,9 +33,9 @@ STATE_ABBREVIATION_MAP.update({k.lower(): v for k, v in STATE_ABBREVIATION_MAP.i
 # --- Global Lookups ---
 # { (cleaned_lastname, cleaned_state): [ (PoliticianID, cleaned_firstname), ... ] }
 politician_db_lookup = {}
-bill_db_lookup = {}       
-icpsr_lookup = {}         
-rollcall_lookup = {}      
+bill_db_lookup = {}       # {normalized_bill_number: bill_id}
+icpsr_lookup = {}         # {icpsr_id: (cleaned_firstname, cleaned_lastname, cleaned_full_state_name)}
+rollcall_lookup = {}      # {(congress, rollnumber, chamber): bill_id}
 
 # Voteview cast_code mapping
 VOTEVIEW_CODE_MAP = {
@@ -44,14 +44,14 @@ VOTEVIEW_CODE_MAP = {
     7: 'Not Voting', 8: 'Not Voting', 9: 'Not Voting', 0: 'Not Voting'
 }
 
-# --- *** CORRECTED HELPER FUNCTIONS *** ---
+# --- Helper Functions ---
 def clean_name_part(name_part):
     """Aggressively cleans a name part to its simplest form."""
     if not name_part: return ""
     name = str(name_part).lower().strip()
     name = re.sub(r"[.,\(\)]", " ", name) # Replace punctuation with space
     name = re.sub(r"\s+(jr|sr|ii|iii|iv|md|phd)$", "", name, flags=re.IGNORECASE) # Remove suffixes
-    name = name.split(' ')[0].strip() # Get only the first word
+    name = name.split(' ')[0].strip()
     return name
 
 def normalize_voteview_bioname(bioname_str):
@@ -59,8 +59,7 @@ def normalize_voteview_bioname(bioname_str):
     name = str(bioname_str or '').strip().lower()
     name = re.sub(r"\s*\([^\)]*\)", "", name).strip() # Remove (Nickname) or (Party)
     
-    cleaned_fname = ""
-    cleaned_lname = ""
+    cleaned_fname = ""; cleaned_lname = ""
     if ',' in name:
         parts = name.split(',', 1)
         cleaned_lname = clean_name_part(parts[0]) # Clean last name
@@ -83,36 +82,32 @@ def clear_votes_table(conn):
         conn.commit(); print("Table cleared.")
     except Exception as e: print(f"Error clearing: {e}"); conn.rollback(); raise e
 
-# --- *** CORRECTED DB LOOKUP FUNCTION *** ---
 def load_db_lookups(conn):
     """Loads Politicians and Bills from Supabase."""
     global politician_db_lookup, bill_db_lookup
     cur = conn.cursor()
-    print("Loading Politicians lookup from DB (Corrected Clean)...");
+    print("Loading Politicians lookup from DB (Cleaned)...");
     cur.execute("SELECT PoliticianID, FirstName, LastName, State FROM Politicians")
     for row in cur.fetchall():
         pid, fname, lname, state = row
-        # Use the SAME cleaning logic for DB names
         cleaned_fname = clean_name_part(fname)
         cleaned_lname = clean_name_part(lname)
         cleaned_state = str(state or '').strip().lower() # e.g., 'new jersey'
-        
         key = (cleaned_lname, cleaned_state) # Key = (lastname, full_state_name)
         if key not in politician_db_lookup:
             politician_db_lookup[key] = []
-        politician_db_lookup[key].append( (pid, cleaned_fname) ) # Value = (PID, cleaned_fname)
-        
+        politician_db_lookup[key].append( (pid, cleaned_fname) )
     print(f"Loaded {len(politician_db_lookup)} unique (LastName, State) keys.")
     
     print("Loading Bills lookup from DB...");
-    cur.execute("SELECT BillID, BillNumber FROM Bills WHERE Congress >= 108");
+    # We must adjust this to only load bills from 108th+
+    cur.execute(f"SELECT BillID, BillNumber FROM Bills WHERE Congress >= {config.START_CONGRESS}");
     for row in cur.fetchall():
         bid, bnumber = row
         key = str(bnumber or '').strip().lower().replace(" ", "").replace(".", "")
         bill_db_lookup[key] = bid
     print(f"Loaded {len(bill_db_lookup)} enacted bills."); cur.close()
 
-# --- *** CORRECTED ICPSR LOOKUP FUNCTION *** ---
 def load_icpsr_lookup(member_filepath):
     """Loads the Voteview member file (HSall_members.json)."""
     global icpsr_lookup
@@ -125,7 +120,6 @@ def load_icpsr_lookup(member_filepath):
             bioname = member.get('bioname', '') 
             
             full_state_name = STATE_ABBREVIATION_MAP.get(state_abbr, '').lower()
-            # Use the SAME cleaning logic for Voteview names
             fname_clean, lname_clean = normalize_voteview_bioname(bioname)
             
             if icpsr and full_state_name and (fname_clean or lname_clean):
@@ -156,33 +150,19 @@ def load_rollcall_lookup(vote_folder_path):
         except Exception as e: print(f"    Warning: Error reading {filename}: {e}. Skipping file.")
     print(f"Loaded {len(rollcall_lookup)} roll calls linked to enacted bills.")
 
-# --- *** CORRECTED POLITICIAN MATCHING FUNCTION *** ---
 def find_politician_id(icpsr):
     """Matches Voteview icpsr to our politician_db_lookup."""
-    # 1. Find the cleaned name/state key from the ICPSR
-    # key = (cleaned_fname, cleaned_lname, full_state_name_lower)
     key_parts = icpsr_lookup.get(icpsr)
-    if not key_parts:
-        return None # This ICPSR wasn't in our member file
-    
+    if not key_parts: return None
     fname_clean, lname_clean, state_clean = key_parts
-    
-    # 2. Use that key to find the PoliticianID from our database
-    # db_key = (cleaned_lname, full_state_name_lower)
     db_key = (lname_clean, state_clean)
     potential_matches = politician_db_lookup.get(db_key)
-    
-    if not potential_matches:
-        return None # No politician in our DB with this last name + state
-        
-    if len(potential_matches) == 1:
-        return potential_matches[0][0] # High confidence match
+    if not potential_matches: return None
+    if len(potential_matches) == 1: return potential_matches[0][0]
     else:
-        # Multiple people, compare cleaned first names
         for pid, fname_db_clean in potential_matches:
-            if fname_clean == fname_db_clean: # Compare 'cory' == 'cory'
-                return pid # Found first name match
-    return None # Ambiguous
+            if fname_clean == fname_db_clean: return pid
+    return None
 
 def process_and_insert_votes():
     """Reads _votes.json files, uses lookups, and batch inserts votes."""
@@ -232,7 +212,7 @@ def process_and_insert_votes():
                     if politician_id and bill_id and vote_string:
                         votes_to_batch_insert.append((politician_id, bill_id, vote_string))
                         file_votes_matched += 1
-                except: continue # Skip bad/malformed rows
+                except: continue 
 
                 if len(votes_to_batch_insert) >= BATCH_SIZE:
                     print(" " * 80, end='\r'); print(f"  Inserting batch of {len(votes_to_batch_insert)} votes...")
@@ -275,3 +255,4 @@ def process_and_insert_votes():
 
 if __name__ == "__main__":
     process_and_insert_votes()
+

@@ -13,13 +13,8 @@ DB_CONNECTION_STRING = config.DB_CONNECTION_STRING
 FEC_DATA_FOLDER_PATH = config.FEC_DATA_FOLDER_PATH
 BATCH_SIZE = 500
 
-# --- Global Lookup ---
-politician_db_lookup = {} # { (lower_lastname, lower_full_state_name): [ (PoliticianID, cleaned_first_name), ... ] }
-
-# --- FEC Headers ---
-CN_HEADERS = ['CAND_ID', 'CAND_NAME', 'CAND_PTY_AFFILIATION', 'CAND_ELECTION_YR', 'CAND_OFFICE_ST', 'CAND_OFFICE', 'CAND_OFFICE_DISTRICT']
-
-# --- State Map ---
+# --- STATE ABBREVIATION MAP ---
+# This maps the FEC's 2-letter abbreviation to the full state name used by Congress.gov
 STATE_ABBREVIATION_MAP = {
     'AL': 'alabama', 'AK': 'alaska', 'AS': 'american samoa', 'AZ': 'arizona', 'AR': 'arkansas',
     'CA': 'california', 'CO': 'colorado', 'CT': 'connecticut', 'DE': 'delaware', 'DC': 'district of columbia',
@@ -35,6 +30,14 @@ STATE_ABBREVIATION_MAP = {
     'WI': 'wisconsin', 'WY': 'wyoming'
 }
 STATE_ABBREVIATION_MAP.update({k.lower(): v for k, v in STATE_ABBREVIATION_MAP.items()})
+
+
+# --- Global Lookup ---
+# { (lower_lastname, lower_full_state_name): [ (PoliticianID, cleaned_first_name), ... ] }
+politician_db_lookup = {}
+
+# --- FEC Headers ---
+CN_HEADERS = ['CAND_ID', 'CAND_NAME', 'CAND_PTY_AFFILIATION', 'CAND_ELECTION_YR', 'CAND_OFFICE_ST', 'CAND_OFFICE', 'CAND_OFFICE_DISTRICT']
 
 def clean_name_part(name_part):
     """Aggressively cleans a name part to its simplest form."""
@@ -58,7 +61,7 @@ def normalize_fec_name(name_str):
         parts = name.split()
         if len(parts) > 1:
             cleaned_fname = clean_name_part(parts[0])
-            cleaned_lname = clean_name_part(parts[-1])
+            cleaned_lname = clean_name_part(parts[-1]) # Assume last part is last name
         elif len(parts) == 1:
             cleaned_lname = clean_name_part(parts[0])
     return (cleaned_fname, cleaned_lname)
@@ -66,17 +69,23 @@ def normalize_fec_name(name_str):
 def load_politician_lookup(conn):
     """Loads Politicians from DB, storing a cleaned first name for matching."""
     global politician_db_lookup; cur = conn.cursor();
-    print("Loading Politicians lookup from DB (v6 logic)...");
+    print("Loading Politicians lookup from DB (Aggressive Clean)...");
     cur.execute("SELECT PoliticianID, FirstName, LastName, State FROM Politicians")
+    
     for row in cur.fetchall():
         pid, fname, lname, state = row
+        
+        # Use the same cleaning logic for DB names
         cleaned_fname = clean_name_part(fname)
         cleaned_lname = clean_name_part(lname)
-        cleaned_state = str(state or '').strip().lower()
+        cleaned_state = str(state or '').strip().lower() # e.g., 'north carolina'
+        
         key = (cleaned_lname, cleaned_state) # Key = (lastname, full_state_name)
+        
         if key not in politician_db_lookup:
             politician_db_lookup[key] = []
         politician_db_lookup[key].append( (pid, cleaned_fname) )
+        
     print(f"Loaded {len(politician_db_lookup)} unique (LastName, State) keys."); cur.close()
 
 def build_mapping_table():
@@ -84,7 +93,7 @@ def build_mapping_table():
     conn = None
     try:
         print("Connecting to Supabase..."); conn = psycopg2.connect(DB_CONNECTION_STRING)
-        load_politician_lookup(conn)
+        load_politician_lookup(conn) # Uses the new load function
         cur = conn.cursor()
         
         print("Clearing old mapping data...");
@@ -92,10 +101,14 @@ def build_mapping_table():
         conn.commit()
 
         cn_files = sorted([f for f in os.listdir(FEC_DATA_FOLDER_PATH) if f.startswith('cn') and f.endswith('.zip')])
-        if not cn_files: print("Error: 'cn.zip' files not found."); return
+        if not cn_files:
+            print(f"Error: 'cn.zip' files not found in '{FEC_DATA_FOLDER_PATH}'."); return
 
-        print("Building FEC Candidate to PoliticianID map (v6 logic)...")
-        matches_found_count = 0; unmatched_candidates = set(); mapping_to_insert = {} 
+        print("Building FEC Candidate to PoliticianID map...")
+        
+        matches_found_count = 0
+        unmatched_candidates = set() 
+        mapping_to_insert = {} 
 
         for filename in cn_files:
             filepath = os.path.join(FEC_DATA_FOLDER_PATH, filename)
@@ -109,14 +122,17 @@ def build_mapping_table():
                             try:
                                 record = dict(zip(CN_HEADERS, row))
                                 cand_id, name_str, state_abbr, office = record.get('CAND_ID'), record.get('CAND_NAME', ''), record.get('CAND_OFFICE_ST', '').strip(), record.get('CAND_OFFICE', '')
+                                
                                 if not (cand_id and name_str and state_abbr and office in ['H', 'S', 'P']):
                                     continue
                                 
+                                # --- TRANSLATE STATE ABBREVIATION ---
                                 full_state_name = STATE_ABBREVIATION_MAP.get(state_abbr.upper())
-                                if not full_state_name: continue
+                                if not full_state_name:
+                                    continue # Skip if we can't map the state (e.g., 'US' for President)
                                     
                                 fname_fec_clean, lname_fec_clean = normalize_fec_name(name_str)
-                                key_fec = (lname_fec_clean, full_state_name)
+                                key_fec = (lname_fec_clean, full_state_name) # Use full state name in key
                                 
                                 potential_matches = politician_db_lookup.get(key_fec)
                                 matched_pid = None
@@ -144,13 +160,14 @@ def build_mapping_table():
             try:
                 execute_values(cur, sql, mapping_tuples, template=None, page_size=BATCH_SIZE)
                 conn.commit(); print("Successfully inserted mappings.")
-            except psycopg2.Error as e: print(f"Error inserting mappings: {e}"); conn.rollback()
+            except psycopg2.Error as e:
+                print(f"Error inserting mappings: {e}"); conn.rollback()
         
         print(f"\n--- Mapping Summary ---")
         cur.execute("SELECT COUNT(*) FROM fec_politician_map;"); final_map_count = cur.fetchone()[0]
         print(f"Total unique FEC candidates mapped in DB: {final_map_count}")
         print(f"Total unique FEC candidates we could NOT match: {len(unmatched_candidates)}")
-        
+
         if unmatched_candidates and final_map_count < (len(politician_db_lookup) * 0.8):
             print("\n--- Examples of UNMATCHED Candidates (if any remain) ---")
             for i, example in enumerate(list(unmatched_candidates)[:15]): print(example)

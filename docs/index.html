@@ -12,13 +12,15 @@
     <style>
         body { font-family: 'Inter', sans-serif; }
         .chart-container { position: relative; margin: auto; height: 300px; width: 100%; }
+        /* Custom scrollbar for better dark mode aesthetics */
         ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #1F2937; }
-        ::-webkit-scrollbar-thumb { background: #4B5563; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #6B7280; }
+        ::-webkit-scrollbar-track { background: #1F2937; } /* bg-gray-800 */
+        ::-webkit-scrollbar-thumb { background: #4B5563; border-radius: 4px; } /* bg-gray-600 */
+        ::-webkit-scrollbar-thumb:hover { background: #6B7280; } /* bg-gray-500 */
+        /* Style for the selected radio button label */
         .filter-radio:checked + label {
-            background-color: #DC2626;
-            border-color: #DC2626;
+            background-color: #DC2626; /* red-600 */
+            border-color: #DC2626; /* red-600 */
             color: white;
             font-weight: 600;
         }
@@ -34,6 +36,7 @@
     <div class="container mx-auto p-4 md:p-8 max-w-5xl">
         <header class="text-center mb-8">
             <div class="flex items-center justify-center gap-4 mb-2">
+                <!-- TYT Logo with fallback -->
                 <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/The_Young_Turks_logo.svg/200px-The_Young_Turks_logo.svg.png" 
                      alt="TYT Logo" 
                      class="h-12 w-12 md:h-16 md:w-16" 
@@ -118,7 +121,7 @@
                     <!-- Vote list container -->
                     <div id="voteRecord" class="max-h-[28rem] lg:max-h-[448px] overflow-y-auto space-y-3 pr-2"></div>
                     
-                    <!-- ** NEW: PAGINATION CONTROLS ** -->
+                    <!-- PAGINATION CONTROLS -->
                     <div id="votePagination" class="hidden flex items-center justify-between mt-4">
                         <button id="prevPageBtn" class="pagination-btn bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-500 transition disabled:opacity-40 disabled:cursor-not-allowed">
                             &larr; Previous
@@ -134,8 +137,9 @@
     </div>
 
     <script>
-        // API URL for mobile testing
-        const API_BASE_URL = "http://192.168.12.146:5000/api"; // Your computer's local network IP
+        // *** IMPORTANT ***
+        // This URL must be replaced with your *public* Render API URL once deployed.
+        const API_BASE_URL = "https://paper-trail-api.onrender.com"; // <-- REPLACE THIS with your live Render API URL
 
         // Get DOM elements
         const searchInput = document.getElementById('searchInput');
@@ -259,8 +263,8 @@
                  }
             }
             
-            // Fetch votes and donations in parallel
-            fetchAndDisplayVotes(); // Fetches page 1
+            // Fetch votes (page 1) and donations in parallel
+            fetchAndDisplayVotes(1); 
             
             try {
                 const donationsRes = await fetch(`${API_BASE_URL}/politician/${politicianId}/donations/summary`);
@@ -281,8 +285,8 @@
         async function fetchAndDisplayVotes(page = 1) {
             if (!currentPoliticianId) return;
             voteSpinner.classList.remove('hidden');
-            voteRecordDiv.innerHTML = '';
-            votePagination.classList.add('hidden');
+            voteRecordDiv.innerHTML = ''; // Clear previous page's votes
+            votePagination.classList.add('hidden'); // Hide pagination controls
             currentPage = page;
 
             try {
@@ -338,14 +342,17 @@
          * Updates the pagination controls based on API response.
          */
         function updateVotePagination(pagination) {
-            if (!pagination || pagination.totalvotes === 0) {
+            if (!pagination || pagination.totalpages <= 1) {
                 votePagination.classList.add('hidden');
                 return;
             }
             
-            pageInfo.textContent = `Page ${pagination.currentpage} of ${pagination.totalpages} (${pagination.totalvotes} votes)`;
-            prevPageBtn.disabled = (pagination.currentpage <= 1);
-            nextPageBtn.disabled = (pagination.currentpage >= pagination.totalpages);
+            totalPages = pagination.totalpages;
+            currentPage = pagination.currentpage;
+            
+            pageInfo.textContent = `Page ${currentPage} of ${totalPages} (${pagination.totalvotes} votes)`;
+            prevPageBtn.disabled = (currentPage <= 1);
+            nextPageBtn.disabled = (currentPage >= totalPages);
             
             votePagination.classList.remove('hidden');
         }
@@ -449,13 +456,10 @@
         });
         backButton.addEventListener('click', showSearchResults);
         
-        // ** UPDATED: Listen for filter/sort changes **
         voteFilterControls.addEventListener('change', () => {
-            // When a filter changes, reset to page 1
-            fetchAndDisplayVotes(1); 
+            fetchAndDisplayVotes(1); // When a filter changes, reset to page 1
         });
         
-        // ** NEW: Listen for pagination button clicks **
         prevPageBtn.addEventListener('click', () => {
             if (currentPage > 1) {
                 fetchAndDisplayVotes(currentPage - 1);
@@ -470,3 +474,4 @@
     </script>
 </body>
 </html>
+
