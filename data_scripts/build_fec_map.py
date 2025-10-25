@@ -6,11 +6,10 @@ import psycopg2
 import time
 from psycopg2.extras import execute_values
 import re
-import config # Import config
 
 # --- CONFIGURATION ---
 DB_CONNECTION_STRING = config.DB_CONNECTION_STRING
-FEC_DATA_FOLDER_PATH = config.FEC_DATA_FOLDER_PATH
+FEC_DATA_FOLDER_PATH = os.path.join(BASE_DIR, "contributions")
 BATCH_SIZE = 500
 
 # --- STATE ABBREVIATION MAP ---

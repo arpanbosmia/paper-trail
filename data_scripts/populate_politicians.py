@@ -2,7 +2,6 @@ import requests
 import psycopg2
 import time
 from psycopg2.extras import execute_values
-import config # Import config
 import re 
 import sys
 import os
