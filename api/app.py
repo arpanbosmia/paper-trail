@@ -5,13 +5,8 @@ from psycopg2.extras import RealDictCursor
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import math
+import config
 
-# --- Load Environment Variables ---
-# This script is designed to run by reading secrets set in the environment.
-# On Render, these are set in the "Environment" tab.
-# For local testing, you must set them in the terminal.
-DB_CONNECTION_STRING = os.environ.get('DB_CONNECTION_STRING')
-CONGRESS_GOV_API_KEY = os.environ.get('CONGRESS_GOV_API_KEY') 
 
 # CORRECT:
 DB_CONNECTION_STRING = os.environ.get("DB_CONNECTION_STRING")
