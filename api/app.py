@@ -9,9 +9,8 @@ import math
 # --- Load Environment Variables ---
 # This script is designed to run by reading secrets set in the environment.
 # NO 'import config'
-DB_CONNECTION_STRING = os.environ.get('DB_CONNECTION_STRING')
-CONGRESS_GOV_API_KEY = os.environ.get('CONGRESS_GOV_API_KEY') 
-
+DB_CONNECTION_STRING = "postgresql://postgres:TKCSJ94fyvqoCn6U@db.mfwkuclwwkddjsdyckeh.supabase.co:5432/postgres"
+CONGRESS_GOV_API_KEY = "AcW3yczMNabRoGS9OayTc0uy57E3x7X61sn3DbQK"
 # --- App Initialization ---
 app = Flask(__name__)
 # Allow requests from any origin
