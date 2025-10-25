@@ -277,3 +277,6 @@ if __name__ == '__main__':
     # host='0.0.0.0' makes it accessible on your local network
     # Use debug=True for local testing
     app.run(debug=True, host='0.0.0.0', port=5000)
+
+    
+
