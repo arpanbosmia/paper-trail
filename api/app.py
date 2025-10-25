@@ -6,36 +6,24 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import math
 
-# --- Add parent directory to path to find 'config' ---
-# This gets the absolute path to this file (api/app.py)
-current_dir = os.path.dirname(os.path.abspath(__file__))
-# This gets the path to the parent 'paper-trail' folder
-parent_dir = os.path.dirname(current_dir)
-# This adds the 'paper-trail' folder to Python's search path
-sys.path.append(parent_dir)
-
-# Try to import the config file
-try:
-    import config
-except ModuleNotFoundError:
-    print("="*50)
-    print(f"ERROR: 'config.py' not found in parent directory: {parent_dir}")
-    print("Please make sure 'config.py' exists in your main 'paper-trail' folder.")
-    print("="*50)
-    # Since this is local testing, we stop the script if config fails
-    sys.exit(1)
+# --- Load Environment Variables ---
+# This script is designed to run by reading secrets set in the environment.
+# NO 'import config'
+DB_CONNECTION_STRING = os.environ.get('DB_CONNECTION_STRING')
+CONGRESS_GOV_API_KEY = os.environ.get('CONGRESS_GOV_API_KEY') 
 
 # --- App Initialization ---
 app = Flask(__name__)
-# Allow requests from any origin (explicitly needed for cross-port communication)
+# Allow requests from any origin
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # --- Database Connection Helper ---
 def get_db_connection():
     """Establishes and returns a new connection to the Supabase database."""
-    if not config.DB_CONNECTION_STRING:
-        raise Exception("DB_CONNECTION_STRING not set in config.py")
-    conn = psycopg2.connect(config.DB_CONNECTION_STRING)
+    if not DB_CONNECTION_STRING:
+        # This will be visible in Render logs if the variable is missing
+        raise Exception("DB_CONNECTION_STRING environment variable not set. Please set it on Render.")
+    conn = psycopg2.connect(DB_CONNECTION_STRING)
     return conn
 
 # --- API Endpoints ---
