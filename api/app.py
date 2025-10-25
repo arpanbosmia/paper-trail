@@ -6,13 +6,14 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import math
 
-# --- Add parent directory to path to find 'config' ---
+# --- *** CORRECTED PATH LOGIC *** ---
 # This gets the absolute path to this file (api/app.py)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # This gets the path to the parent 'paper-trail' folder
 parent_dir = os.path.dirname(current_dir)
 # This adds the 'paper-trail' folder to Python's search path
 sys.path.append(parent_dir)
+# --- *** END CORRECTION *** ---
 
 # Try to import the config file
 try:
